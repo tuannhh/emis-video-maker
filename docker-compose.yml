@@ -1,0 +1,95 @@
+name: edu-video-ai
+
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: docker/backend.Dockerfile
+  image: edu-video-ai-backend
+  restart: unless-stopped
+  env_file: .env
+  environment: &backend-env
+    DATABASE_URL: postgres://edu:edu@postgres:5432/edu
+    REDIS_URL: redis://redis:6379
+    STORAGE_DIR: /data/storage
+    FILES_PUBLIC_URL: ""
+    FILES_INTERNAL_URL: http://api:4100
+    API_PORT: "4100"
+    WEB_ORIGIN: http://localhost:3100
+  volumes:
+    - storage:/data/storage
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: edu
+      POSTGRES_PASSWORD: edu
+      POSTGRES_DB: edu
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U edu -d edu"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    volumes:
+      - redisdata:/data
+    ports:
+      - "127.0.0.1:16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    <<: *backend
+    command: ["node", "dist/main.js"]
+    ports:
+      - "127.0.0.1:4100:4100"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4100/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    <<: *backend
+    command: ["node", "dist/worker.js"]
+    # Chromium của Remotion cần bộ nhớ chia sẻ lớn hơn mặc định 64MB
+    shm_size: 2gb
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      args:
+        API_INTERNAL_URL: http://api:4100
+    image: edu-video-ai-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3100:3100"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
+  storage:

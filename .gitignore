@@ -1,0 +1,10 @@
+node_modules
+dist
+.next
+out
+.env
+data/
+*.log
+.remotion
+.tmp
+*.tsbuildinfo
