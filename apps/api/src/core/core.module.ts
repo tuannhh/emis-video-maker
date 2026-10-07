@@ -11,6 +11,7 @@ import { LESSON_QUEUE } from './queue.js';
 import { SettingsService } from './settings.service.js';
 import { SoundService } from './sound.service.js';
 import { StorageService } from './storage.service.js';
+import { UploadsService } from './uploads.service.js';
 import { UsageService } from './usage.service.js';
 
 const queue = BullModule.registerQueue({ name: LESSON_QUEUE });
@@ -27,6 +28,7 @@ const services = [
   AssetsRepo,
   SoundService,
   JobsService,
+  UploadsService,
 ];
 
 @Global()

@@ -24,6 +24,12 @@ export const Intro: React.FC<{ intro: RenderIntro; host: RenderCharacter | null 
     reaction: 'none',
   } as unknown as RenderShot;
   const ctx = (f: number) => ({ id: host?.id ?? '', shot: hostShot, local: f, frame: f, lookX: 0, x: W * 0.8 });
+  // Mascot chính diện dang tay có khung ảnh rộng gần gấp đôi nhân vật thường: thu nhỏ lại và dồn tiêu đề sang trái
+  // để không che chữ. Nhân vật thường (khung rộng dưới 0.3W) giữ nguyên bố cục.
+  const lift = host ? Math.max(0.3, 1 - host.headTop) : 1;
+  const aspect = host ? host.width / host.height : 0;
+  const hostHeight = host ? Math.min(H * 0.8, (W * 0.36 * lift) / aspect) : 0;
+  const extra = host ? Math.max(0, (aspect * hostHeight) / lift - W * 0.3) : 0;
 
   return (
     <AbsoluteFill
@@ -32,7 +38,7 @@ export const Intro: React.FC<{ intro: RenderIntro; host: RenderCharacter | null 
       }}
     >
       <Clouds />
-      <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center', paddingRight: host ? W * 0.18 : 0 }}>
+      <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center', paddingRight: host ? W * 0.18 + extra * 2 : 0 }}>
         <div
           style={{
             fontFamily: FONT_FAMILY,
@@ -43,7 +49,7 @@ export const Intro: React.FC<{ intro: RenderIntro; host: RenderCharacter | null 
             paintOrder: 'stroke fill',
             textShadow: '0 12px 0 rgba(0,0,0,0.12)',
             textAlign: 'center',
-            maxWidth: W * 0.62,
+            maxWidth: W * 0.62 - extra,
             lineHeight: 1.1,
             textWrap: 'balance',
             transform: `scale(${titleIn})`,
@@ -74,7 +80,7 @@ export const Intro: React.FC<{ intro: RenderIntro; host: RenderCharacter | null 
             character={host}
             x={W * 0.8}
             feet={H * 1.03}
-            bodyHeight={H * 0.8}
+            bodyHeight={hostHeight}
             frame={frame}
             phase={0}
             state={rigState(ctx(frame), (k) => ctx(Math.max(0, frame - k)))}

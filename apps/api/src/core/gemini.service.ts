@@ -15,6 +15,10 @@ export interface SpeechPart {
 
 export class GeminiError extends Error {}
 
+/** Kết quả bị bộ lọc an toàn của Gemini chặn (đôi khi chặn nhầm, thử lại thường qua) */
+const BLOCKED = new Set(['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'IMAGE_SAFETY', 'OTHER']);
+export const BLOCKED_MESSAGE = 'bị bộ lọc an toàn của Gemini chặn';
+
 /** Giới hạn số request đồng thời (model ảnh dễ bị 429 khi vẽ nhiều dáng nhân vật cùng lúc) */
 class Semaphore {
   private queue: (() => void)[] = [];
@@ -116,6 +120,7 @@ export class GeminiService {
   ): Promise<z.infer<S>> {
     const responseJsonSchema = toGeminiSchema(schema);
     let contents = [{ role: 'user', parts }];
+    let blocked = false;
     for (let attempt = 0; attempt < 2; attempt++) {
       const model = opts.model ?? config.gemini.textModel;
       const res = await this.withRetry(label, async () =>
@@ -132,6 +137,12 @@ export class GeminiService {
       );
       await this.usage.record(model, label, res.usageMetadata as GeminiUsageMetadata);
       const text = res.text ?? '';
+      const finish = res.candidates?.[0]?.finishReason ?? res.promptFeedback?.blockReason;
+      blocked = !text && !!finish && BLOCKED.has(finish);
+      if (blocked) {
+        this.logger.warn(`${label}: ${BLOCKED_MESSAGE} (${finish}), thử lại`);
+        continue;
+      }
       let parsed: unknown;
       try {
         parsed = JSON.parse(text);
@@ -140,7 +151,10 @@ export class GeminiService {
       }
       const result = schema.safeParse(parsed);
       if (result.success) return result.data;
-      const problem = parsed === undefined ? 'JSON không hợp lệ' : z.prettifyError(result.error);
+      const problem =
+        parsed === undefined
+          ? `JSON không hợp lệ (${text.length} ký tự, kết thúc: ${finish}): …${text.slice(-160)}`
+          : z.prettifyError(result.error);
       this.logger.warn(`${label}: kết quả sai định dạng, yêu cầu sửa lại. ${problem.slice(0, 300)}`);
       contents = [
         ...contents,
@@ -148,7 +162,7 @@ export class GeminiService {
         { role: 'user', parts: [{ text: `Kết quả chưa đúng schema:\n${problem}\nHãy trả lại toàn bộ JSON đã sửa.` }] },
       ];
     }
-    throw new GeminiError(`${label}: model trả về dữ liệu sai định dạng`);
+    throw new GeminiError(blocked ? `${label}: ${BLOCKED_MESSAGE}` : `${label}: model trả về dữ liệu sai định dạng`);
   }
 
   /** Tạo hoặc chỉnh sửa ảnh. `images` là ảnh tham chiếu (ví dụ ảnh gốc của nhân vật). */
@@ -230,6 +244,23 @@ export class GeminiService {
       },
       3,
     );
+  }
+
+  /** Trả lời dạng văn bản tự do (đọc tài liệu, OCR, viết mô tả). */
+  async text(label: string, parts: Part[], opts: { system?: string; temperature?: number } = {}): Promise<string> {
+    const model = config.gemini.textModel;
+    const res = await this.withRetry(label, async () =>
+      (await this.ai()).models.generateContent({
+        model,
+        contents: [{ role: 'user', parts }],
+        config: { systemInstruction: opts.system, temperature: opts.temperature ?? 0.2 },
+      }),
+    );
+    await this.usage.record(model, label, res.usageMetadata as GeminiUsageMetadata);
+    const text = (res.text ?? '').trim();
+    const finish = res.candidates?.[0]?.finishReason ?? res.promptFeedback?.blockReason;
+    if (!text && finish && BLOCKED.has(finish)) throw new GeminiError(`${label}: ${BLOCKED_MESSAGE}`);
+    return text;
   }
 
   /** Chép lời một đoạn âm thanh (dùng để kiểm tra TTS có đọc nhầm chỉ dẫn không). */

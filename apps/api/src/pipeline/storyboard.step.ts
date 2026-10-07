@@ -3,6 +3,7 @@ import {
   STORYBOARD_VERSION,
   StoryboardSchema,
   type Asset,
+  type LessonIdea,
   type LessonScript,
   type Shot,
   type Storyboard,
@@ -12,6 +13,7 @@ import {
 import { AssetsRepo } from '../core/assets.repo.js';
 import { GeminiService } from '../core/gemini.service.js';
 import { STORYBOARD_SYSTEM, storyboardPrompt } from './prompts.js';
+import { styleTag } from './script.step.js';
 
 const POSITIONS = ['left', 'right', 'center'] as const;
 type Position = (typeof POSITIONS)[number];
@@ -25,13 +27,49 @@ export class StoryboardStep {
     @Inject(AssetsRepo) private readonly assets: AssetsRepo,
   ) {}
 
-  async run(script: LessonScript, feedback?: string | null): Promise<Storyboard> {
-    const library = await this.assets.list('background');
+  async run(script: LessonScript, feedback: string | null | undefined, idea: LessonIdea): Promise<Storyboard> {
+    const all = await this.assets.list('background');
+    const chosenKeys = (idea.backgroundKeys ?? []).filter((k) => all.some((a) => a.key === k));
+    const only = chosenKeys.length > 0 && idea.newBackgrounds === false;
+    const tag = styleTag(idea);
+    // Có ảnh phong cách: chỉ dùng lại nền đã chọn (nền khác trong thư viện vẽ theo phong cách khác)
+    const library = tag || only ? all.filter((a) => chosenKeys.includes(a.key)) : all;
     const board = await this.gemini.json('Dàn dựng cảnh', StoryboardSchema, [
-      { text: storyboardPrompt(script, library, feedback) },
+      { text: storyboardPrompt(script, library, feedback, { keys: chosenKeys, only }) },
     ], { system: STORYBOARD_SYSTEM, temperature: 0.6 });
-    return sanitizeStoryboard(board, script, library);
+    const fixed = restrictBackgrounds(board, { chosenKeys, only, styleTag: tag, allKeys: new Set(all.map((a) => a.key)) });
+    return sanitizeStoryboard(fixed, script, library);
   }
+}
+
+/**
+ * Áp lựa chọn bối cảnh của người dùng: chỉ dùng nền đã chọn (thay nền AI tự đề xuất bằng nền đã chọn theo thứ tự),
+ * và khi vẽ theo ảnh phong cách thì nền mới trùng key thư viện được đổi key để vẽ mới thay vì dùng bản khác phong cách.
+ */
+export function restrictBackgrounds(
+  board: Storyboard,
+  opts: { chosenKeys: string[]; only: boolean; styleTag: string | null; allKeys: Set<string> },
+): Storyboard {
+  const chosen = new Set(opts.chosenKeys);
+  if (opts.only) {
+    const map = new Map<string, string>();
+    let next = 0;
+    const scenes = board.scenes.map((sc) => {
+      if (chosen.has(sc.backgroundKey)) return sc;
+      // Cùng một nền đề xuất (hoặc biến thể của nó) luôn được thay bằng cùng một nền đã chọn
+      const root = board.backgrounds.find((b) => b.key === sc.backgroundKey)?.variantOf ?? sc.backgroundKey;
+      if (!map.has(root)) map.set(root, chosen.has(root) ? root : opts.chosenKeys[next++ % opts.chosenKeys.length]);
+      return { ...sc, backgroundKey: map.get(root)! };
+    });
+    return { ...board, backgrounds: board.backgrounds.filter((b) => chosen.has(b.key)).map((b) => ({ ...b, variantOf: undefined })), scenes };
+  }
+  if (!opts.styleTag) return board;
+  const rename = (k: string) => (opts.allKeys.has(k) && !chosen.has(k) ? `${k}-${opts.styleTag}` : k);
+  return {
+    ...board,
+    backgrounds: board.backgrounds.map((b) => ({ ...b, key: rename(b.key), variantOf: b.variantOf ? rename(b.variantOf) : undefined })),
+    scenes: board.scenes.map((sc) => ({ ...sc, backgroundKey: rename(sc.backgroundKey) })),
+  };
 }
 
 /**

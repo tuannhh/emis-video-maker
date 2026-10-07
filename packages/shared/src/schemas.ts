@@ -39,6 +39,10 @@ export const slug = z
 // ---------------------------------------------------------------------------
 // Ý tưởng do người dùng nhập
 // ---------------------------------------------------------------------------
+export const MAX_MATERIALS = 5;
+export const MAX_CHOSEN_CHARACTERS = 3;
+export const MAX_CHOSEN_BACKGROUNDS = 4;
+
 export const LessonIdeaSchema = z.object({
   topic: z.string().min(3).max(500),
   subject: z.string().min(1).max(100),
@@ -47,6 +51,20 @@ export const LessonIdeaSchema = z.object({
   notes: z.string().max(2000).optional(),
   burnSubtitles: z.boolean().default(true),
   audio: AudioSettingsSchema.optional(),
+  /** Tư liệu tham khảo (ảnh, Word, PDF) đã tải lên; trống = AI tự soạn nội dung */
+  materialIds: z.array(z.string().uuid()).max(MAX_MATERIALS).optional(),
+  /** Nhân vật chọn từ thư viện (key) — dùng lại, không vẽ mới */
+  characterKeys: z.array(z.string().max(80)).max(MAX_CHOSEN_CHARACTERS).optional(),
+  /** Nhân vật dẫn dắt cả video (một trong characterKeys) */
+  mascotKey: z.string().max(80).optional(),
+  /** false = chỉ dùng nhân vật đã chọn */
+  newCharacters: z.boolean().optional(),
+  /** Bối cảnh chọn từ thư viện (key) */
+  backgroundKeys: z.array(z.string().max(80)).max(MAX_CHOSEN_BACKGROUNDS).optional(),
+  /** false = chỉ dùng bối cảnh đã chọn, không vẽ bối cảnh mới */
+  newBackgrounds: z.boolean().optional(),
+  /** Ảnh tham chiếu phong cách: nhân vật, bối cảnh mới vẽ theo phong cách này */
+  styleRefId: z.string().uuid().optional(),
 });
 export type LessonIdea = z.infer<typeof LessonIdeaSchema>;
 
@@ -274,6 +292,14 @@ export interface Asset {
     height?: number;
     voice?: string;
     role?: string;
+    /** character: hướng nhìn; front = chính diện (mascot tải lên), mặc định nhìn 3/4 sang phải */
+    facing?: 'right' | 'front';
+    /** character: rig 0 + ready = ảnh source đã là dáng đứng trên nền magenta, chỉ cần dựng các dáng còn lại */
+    ready?: boolean;
+    /** Nguồn tạo: upload = mascot người dùng tải lên, ai = tạo ở thư viện, mặc định = AI vẽ khi sản xuất */
+    origin?: 'upload' | 'ai';
+    /** Mã phong cách (ảnh tham chiếu phong cách) dùng khi vẽ */
+    style?: string;
     /** character: phiên bản bộ dáng; 2 = 4 dáng × 2 khẩu hình + chớp mắt, nhìn 3/4 sang phải */
     rig?: number;
     /** character: tỉ lệ từ mép trên khung tới đỉnh đầu ở dáng đứng yên (khung chung chứa cả dáng giơ tay) */

@@ -8,7 +8,8 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   outputFileTracingRoot: path.join(import.meta.dirname, '../..'),
   // Cho phép tải file nhạc nền / hiệu ứng lên qua proxy /api
-  experimental: { proxyClientMaxBodySize: '40mb' },
+  // proxyTimeout: AI vẽ nhân vật xem trước mất 15–60 giây (mặc định Next.js cắt ở 30 giây)
+  experimental: { proxyClientMaxBodySize: '40mb', proxyTimeout: 300_000 },
   async rewrites() {
     return [
       { source: '/api/:path*', destination: `${apiUrl}/api/:path*` },

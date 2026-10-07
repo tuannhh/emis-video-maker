@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { VOICES, type SfxId } from '@edu/shared';
+import { CharacterCreator } from '@/components/CharacterCreator';
 import { useSession } from '@/components/Session';
 import { api, type AssetView, type MusicView, type SfxView } from '@/lib/api';
 
@@ -18,6 +19,7 @@ export default function LibraryPage() {
   const { isAdmin } = useSession();
   const [assets, setAssets] = useState<AssetView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(() => {
     api.listAssets().then(setAssets).catch((e: Error) => setError(e.message));
@@ -25,7 +27,11 @@ export default function LibraryPage() {
   useEffect(load, [load]);
 
   async function remove(a: AssetView) {
-    if (!confirm(`Xoá "${a.name}" khỏi thư viện? Lần sản xuất sau AI sẽ vẽ lại.`)) return;
+    const made = a.meta.origin === 'upload' || a.meta.origin === 'ai';
+    const msg = made
+      ? `Xoá "${a.name}" khỏi thư viện? Nhân vật này được tạo riêng, muốn dùng lại phải tạo lại.`
+      : `Xoá "${a.name}" khỏi thư viện? Lần sản xuất sau AI sẽ vẽ lại.`;
+    if (!confirm(msg)) return;
     try {
       await api.deleteAsset(a.id);
       load();
@@ -54,7 +60,23 @@ export default function LibraryPage() {
       <div className="card">
         <div className="card-head">
           <h2>Nhân vật ({characters.length})</h2>
+          {!creating ? (
+            <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>
+              ＋ Tạo nhân vật / tải mascot
+            </button>
+          ) : null}
         </div>
+        {creating ? (
+          <div className="creator-box">
+            <CharacterCreator
+              onCancel={() => setCreating(false)}
+              onCreated={() => {
+                setCreating(false);
+                load();
+              }}
+            />
+          </div>
+        ) : null}
         {characters.length === 0 ? (
           <p className="muted">Chưa có nhân vật nào.</p>
         ) : (
@@ -62,9 +84,13 @@ export default function LibraryPage() {
             {characters.map((a) => (
               <div key={a.id} className="asset">
                 <div className="asset-img">
-                  <img src={a.urls.idle ?? a.urls.base} alt={a.name} loading="lazy" />
+                  <img src={a.urls.idle ?? a.urls.source ?? a.urls.base} alt={a.name} loading="lazy" />
                 </div>
-                {(a.meta.rig ?? 1) >= 2 ? (
+                {a.meta.ready && !a.meta.rig ? (
+                  <div className="muted small" style={{ padding: '0 12px' }}>
+                    Mới tạo — các dáng tay, khẩu hình, chớp mắt được dựng khi dùng trong bài học lần đầu.
+                  </div>
+                ) : (a.meta.rig ?? 1) >= 2 ? (
                   <div className="pose-strip">
                     {POSE_LABELS.filter(([k]) => a.urls[k]).map(([k, label]) => (
                       <figure key={k}>
@@ -79,7 +105,10 @@ export default function LibraryPage() {
                   </div>
                 )}
                 <div className="asset-body">
-                  <strong>{a.name}</strong>
+                  <strong>{a.name}</strong>{' '}
+                  {a.meta.origin === 'upload' ? <span className="badge badge-info">Mascot tải lên</span> : null}
+                  {a.meta.origin === 'ai' ? <span className="badge badge-muted">Tạo ở thư viện</span> : null}
+                  {a.meta.style ? <span className="badge badge-muted">Phong cách riêng</span> : null}
                   <div className="muted">
                     <code>{a.key}</code> · giọng {a.meta.voice} ({voiceLabel(a.meta.voice)})
                   </div>
@@ -88,7 +117,7 @@ export default function LibraryPage() {
                   </p>
                   {isAdmin ? (
                     <button className="btn btn-danger btn-sm" onClick={() => remove(a)}>
-                      Xoá để vẽ lại
+                      {a.meta.origin ? 'Xoá' : 'Xoá để vẽ lại'}
                     </button>
                   ) : null}
                 </div>

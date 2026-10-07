@@ -8,6 +8,7 @@ import { ScriptEditor } from '@/components/ScriptEditor';
 import { useSession } from '@/components/Session';
 import { StatusBadge } from '@/components/StatusBadge';
 import { UsageCard } from '@/components/UsageCard';
+import type { UploadView } from '@edu/shared';
 import { api, formatTime, slugFileName, type LessonPayload, type LessonView } from '@/lib/api';
 
 /** Trang chi tiết bài học; `fetcher` lấy bài theo mã (URL mới) hoặc theo id (URL cũ). */
@@ -104,11 +105,7 @@ export function LessonDetail({ fetcher }: { fetcher: () => Promise<LessonPayload
               <h2 style={{ marginBottom: 10 }}>Nhật ký</h2>
               <EventLog events={events} />
             </div>
-            <div className="card">
-              <h2 style={{ marginBottom: 10 }}>Ý tưởng ban đầu</h2>
-              <p style={{ margin: 0 }}>{lesson.idea.topic}</p>
-              {lesson.idea.notes ? <p className="muted small">{lesson.idea.notes}</p> : null}
-            </div>
+            <IdeaCard lesson={lesson} />
           </aside>
         </div>
       )}
@@ -473,6 +470,68 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
         <h2>{title}</h2>
         {children}
       </div>
+    </div>
+  );
+}
+
+/** Ý tưởng ban đầu + tư liệu, nhân vật/bối cảnh chọn từ thư viện, ảnh phong cách */
+function IdeaCard({ lesson }: { lesson: LessonView }) {
+  const idea = lesson.idea;
+  const [uploads, setUploads] = useState<UploadView[]>([]);
+  const ids = [...(idea.materialIds ?? []), ...(idea.styleRefId ? [idea.styleRefId] : [])].join(',');
+  useEffect(() => {
+    if (ids) api.listUploads(ids.split(',')).then(setUploads).catch(() => setUploads([]));
+  }, [ids]);
+  const materials = uploads.filter((u) => u.kind === 'material');
+  const style = uploads.find((u) => u.kind === 'style');
+  return (
+    <div className="card">
+      <h2 style={{ marginBottom: 10 }}>Ý tưởng ban đầu</h2>
+      <p style={{ margin: 0 }}>{idea.topic}</p>
+      {idea.notes ? <p className="muted small">{idea.notes}</p> : null}
+      {materials.length ? (
+        <div className="idea-extra">
+          <div className="field-label">Tư liệu tham khảo</div>
+          <ul className="file-list compact">
+            {materials.map((m) => (
+              <li key={m.id}>
+                <a href={m.url} target="_blank" rel="noreferrer" className="file-name">
+                  {m.name}
+                </a>
+                <span className="muted small">{m.textLength !== null ? 'AI đã đọc' : 'chưa đọc'}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {idea.characterKeys?.length || idea.backgroundKeys?.length ? (
+        <div className="idea-extra small">
+          {idea.characterKeys?.length ? (
+            <div>
+              Nhân vật chọn từ thư viện:{' '}
+              {idea.characterKeys
+                .map((k) => {
+                  const name = lesson.script?.characters.find((c) => c.id === k)?.name ?? k;
+                  return k === idea.mascotKey ? `${name} (mascot)` : name;
+                })
+                .join(', ')}
+              {idea.newCharacters === false ? ' — không thêm nhân vật mới' : ''}
+            </div>
+          ) : null}
+          {idea.backgroundKeys?.length ? (
+            <div>
+              Bối cảnh chọn từ thư viện: {idea.backgroundKeys.join(', ')}
+              {idea.newBackgrounds === false ? ' — không vẽ bối cảnh mới' : ''}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {style ? (
+        <div className="idea-extra">
+          <div className="field-label">Ảnh phong cách</div>
+          <img src={style.url} alt="Ảnh phong cách" className="style-thumb" />
+        </div>
+      ) : null}
     </div>
   );
 }

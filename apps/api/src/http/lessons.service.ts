@@ -4,6 +4,7 @@ import { LessonsRepo } from '../core/lessons.repo.js';
 import { JobsService } from '../core/jobs.service.js';
 import type { LessonJobName, ProduceJobData, ScriptJobData } from '../core/queue.js';
 import { StorageService } from '../core/storage.service.js';
+import { UploadsService } from '../core/uploads.service.js';
 import { sanitizeScript } from '../pipeline/script.step.js';
 
 @Injectable()
@@ -12,6 +13,7 @@ export class LessonsService {
     @Inject(LessonsRepo) private readonly repo: LessonsRepo,
     @Inject(StorageService) private readonly storage: StorageService,
     @Inject(JobsService) private readonly jobs: JobsService,
+    @Inject(UploadsService) private readonly uploads: UploadsService,
   ) {}
 
   private enqueue(name: LessonJobName, data: ScriptJobData | ProduceJobData) {
@@ -31,6 +33,14 @@ export class LessonsService {
   }
 
   async create(idea: LessonIdea, userId: string) {
+    const ids = [...(idea.materialIds ?? []), ...(idea.styleRefId ? [idea.styleRefId] : [])];
+    const found = await this.uploads.list(ids);
+    const kindOf = new Map(found.map((u) => [u.id, u.kind]));
+    if ((idea.materialIds ?? []).some((id) => kindOf.get(id) !== 'material')) throw new BadRequestException('Tư liệu không hợp lệ');
+    if (idea.styleRefId && kindOf.get(idea.styleRefId) !== 'style') throw new BadRequestException('Ảnh phong cách không hợp lệ');
+    if (idea.mascotKey && !(idea.characterKeys ?? []).includes(idea.mascotKey)) {
+      idea = { ...idea, characterKeys: [idea.mascotKey, ...(idea.characterKeys ?? [])].slice(0, 3) };
+    }
     const lesson = await this.repo.create(idea, userId);
     await this.repo.addEvent(lesson.id, 'created', 'Đã nhận ý tưởng');
     await this.enqueue('script', { lessonId: lesson.id });

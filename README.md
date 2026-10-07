@@ -1,10 +1,11 @@
 # EMIS Video Maker
 
 Tạo video bài học hoạt hình 2D tự động bằng Gemini. Con người chỉ làm 4 việc:
-**đưa ý tưởng → duyệt kịch bản → duyệt thành phẩm → tự tải về đăng lên mạng xã hội**.
+**đưa ý tưởng (kèm tư liệu, mascot, nhân vật/bối cảnh có sẵn nếu muốn) → duyệt kịch bản → duyệt thành phẩm → tự tải về đăng lên mạng xã hội**.
 
 ```
-👤 Ý tưởng
+👤 Ý tưởng + tư liệu (ảnh, Word, PDF) + nhân vật, bối cảnh, ảnh phong cách tuỳ chọn
+   ↓  gemini-3.8-flash (vision)   đọc tư liệu (OCR)
    ↓  gemini-3.8-flash            viết kịch bản (nhân vật, lời thoại, cảm xúc, cách đọc số)
 👤 DUYỆT KỊCH BẢN                 sửa trực tiếp hoặc yêu cầu AI viết lại theo góp ý
    ↓  gemini-3.8-flash            dàn dựng cảnh: nền, cỡ cảnh, camera, dáng diễn, phản ứng, nhãn/đếm, hiệu ứng âm thanh
@@ -85,6 +86,26 @@ packages/shared     schema zod dùng chung (kịch bản, storyboard, props rend
 packages/video      composition Remotion: intro, cảnh (camera, nhân vật, nhãn, phụ đề), outro
 docker/             Dockerfile cho backend và web
 ```
+
+## Tạo bài học (`/new`)
+
+| Mục | Cách dùng | Ghi chú |
+| --- | --- | --- |
+| Tư liệu tham khảo | Kéo thả, bấm chọn hoặc **Ctrl+V** dán ảnh ở bất kỳ đâu trên trang. Ảnh (PNG, JPG, WEBP), Word `.docx`, PDF | Tối đa **2MB mỗi tệp**, 5 tệp. Không tải thì AI tự soạn nội dung. `.doc` cũ cần lưu lại thành `.docx`/PDF |
+| Nhân vật | Chọn tối đa 3 nhân vật trong thư viện, bấm ★ để chọn **mascot** dẫn dắt cả video; tuỳ chọn "chỉ dùng nhân vật đã chọn" | Dùng lại thì không tốn chi phí vẽ |
+| Bối cảnh | Chọn tối đa 4 bối cảnh trong thư viện; tuỳ chọn "chỉ dùng bối cảnh đã chọn" (không vẽ nền mới) | Tiết kiệm nhất |
+| Phong cách | Tải một ảnh mẫu (khung hình video cũ, tranh 3D...) | Nhân vật, bối cảnh **vẽ mới** theo phong cách ảnh này và được lưu riêng, không thay thế bản trong thư viện |
+
+**Thêm nhân vật vào thư viện** (trang tạo bài hoặc trang Thư viện):
+
+- **Tải mascot có sẵn**: AI vẽ lại đúng thiết kế (hình dáng, màu, logo) ở tư thế chính diện trên nền magenta để tách nền.
+  Mascot nên rõ nét, thấy toàn thân và không có màu hồng tím.
+- **AI tạo nhân vật mới**: ảnh tham chiếu (không bắt buộc) + ô yêu cầu, nút **✨ AI gợi ý** viết yêu cầu theo môn/lớp/chủ đề và ảnh
+  tham chiếu; có thể vẽ theo ảnh phong cách của bài đang tạo.
+- Xem trước tốn khoảng 1 ảnh; các dáng tay, khẩu hình, chớp mắt được dựng khi nhân vật được dùng trong bài lần đầu.
+
+Tư liệu được AI đọc (OCR) một lần lúc viết kịch bản, kết quả lưu lại nên viết lại kịch bản không tốn thêm. Chi phí đọc tư liệu
+và tạo nhân vật ở thư viện có mục riêng trong trang Báo cáo.
 
 ## URL bài học
 

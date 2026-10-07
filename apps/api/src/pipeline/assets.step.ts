@@ -33,6 +33,13 @@ const GESTURES = ['talk', 'explain', 'idea', 'point', 'cheer'] as const;
 const RIG_SOURCES = ['idle', 'idleOpen', 'blink', ...GESTURES] as const;
 type RigSource = (typeof RIG_SOURCES)[number];
 
+/** Ảnh tham chiếu phong cách của bài: gửi kèm khi vẽ nhân vật, bối cảnh MỚI */
+export interface StyleRef {
+  image: Buffer;
+  mime: string;
+  tag: string;
+}
+
 export interface ProducedAssets {
   characters: Record<string, Asset>;
   backgrounds: Record<string, Asset>;
@@ -55,7 +62,7 @@ export class AssetsStep {
     @Inject(StorageService) private readonly storage: StorageService,
   ) {}
 
-  async run(script: LessonScript, board: Storyboard, progress: Progress): Promise<ProducedAssets> {
+  async run(script: LessonScript, board: Storyboard, progress: Progress, style: StyleRef | null = null): Promise<ProducedAssets> {
     const visual = script.characters.filter((c) => c.role !== 'narrator');
     const total = visual.length + board.backgrounds.length;
     let done = 0;
@@ -86,17 +93,17 @@ export class AssetsStep {
 
     await Promise.all([
       mapLimit(visual, 2, async (c) => {
-        characters[c.id] = await this.character(c);
+        characters[c.id] = await this.character(c, style);
         await tick(`Nhân vật ${c.name} đã sẵn sàng`);
       }),
       (async () => {
         await mapLimit(bases, 2, async (b) => {
-          backgrounds[b.key] = await this.background(b, null, countTargets.get(b.key), warnings);
+          backgrounds[b.key] = await this.background(b, null, countTargets.get(b.key), warnings, style);
           await tick(`Bối cảnh ${b.key} đã sẵn sàng`);
         });
         await mapLimit(variants, 2, async (b) => {
-          const base = backgrounds[b.variantOf!] ?? (await this.baseFor(b.variantOf!, specs, warnings));
-          backgrounds[b.key] = await this.background(b, base, countTargets.get(b.key), warnings);
+          const base = backgrounds[b.variantOf!] ?? (await this.baseFor(b.variantOf!, specs, warnings, style));
+          backgrounds[b.key] = await this.background(b, base, countTargets.get(b.key), warnings, style);
           await tick(`Bối cảnh ${b.key} đã sẵn sàng`);
         });
       })(),
@@ -105,17 +112,22 @@ export class AssetsStep {
   }
 
   /** Nền gốc của một biến thể không nằm trong storyboard: lấy trong thư viện */
-  private async baseFor(key: string, specs: Map<string, StoryboardBackground>, warnings: string[]): Promise<Asset | null> {
+  private async baseFor(
+    key: string,
+    specs: Map<string, StoryboardBackground>,
+    warnings: string[],
+    style: StyleRef | null,
+  ): Promise<Asset | null> {
     const lib = await this.repo.get('background', key);
     if (lib) return lib;
     const spec = specs.get(key);
-    return spec ? this.background(spec, null, undefined, warnings) : null;
+    return spec ? this.background(spec, null, undefined, warnings, style) : null;
   }
 
   // -------------------------------------------------------------------------
   // Nhân vật: ảnh đứng + 5 dáng tay (ghép chung một cái đầu) + miếng dán miệng mở / mắt nhắm
   // -------------------------------------------------------------------------
-  private async character(c: ScriptCharacter): Promise<Asset> {
+  private async character(c: ScriptCharacter, style: StyleRef | null): Promise<Asset> {
     const existing = await this.repo.get('character', c.id);
     if (existing?.meta.rig === RIG_VERSION) return existing;
 
@@ -145,7 +157,11 @@ export class AssetsStep {
     }
     if (!sources.idle) {
       const oldSource = existing?.files.source ?? existing?.files.base;
-      if (oldSource && (await this.storage.exists(oldSource))) {
+      if (existing?.meta.ready && oldSource && (await this.storage.exists(oldSource))) {
+        // Nhân vật tạo ở thư viện / mascot tải lên: ảnh gốc đã là dáng đứng trên nền magenta
+        this.logger.log(`Dựng bộ dáng cho nhân vật thư viện: ${c.id}`);
+        sources.idle = await png(await this.storage.read(oldSource));
+      } else if (oldSource && (await this.storage.exists(oldSource))) {
         // Nhân vật cũ (vẽ chính diện): vẽ lại góc 3/4 từ ảnh cũ để giữ nguyên thiết kế
         this.logger.log(`Nâng cấp bộ dáng nhân vật: ${c.id}`);
         sources.idle = await png(
@@ -153,7 +169,9 @@ export class AssetsStep {
         );
       } else {
         this.logger.log(`Vẽ nhân vật mới: ${c.id}`);
-        sources.idle = await png(await this.gemini.image(`Vẽ nhân vật ${c.name}`, characterPrompt(c.description), opts()));
+        sources.idle = await png(
+          await this.gemini.image(`Vẽ nhân vật ${c.name}`, characterPrompt(c.description, !!style), opts(style ? [style.image] : undefined)),
+        );
       }
       for (const k of RIG_SOURCES) if (k !== 'idle') delete sources[k];
     }
@@ -185,13 +203,25 @@ export class AssetsStep {
     for (const [k, b] of Object.entries(rig.poses)) files[k] = await this.storage.put(`${prefix}/${k}.png`, b);
     files.mouth = await this.storage.put(`${prefix}/mouth.png`, rig.mouth);
     files.blink = await this.storage.put(`${prefix}/blink.png`, rig.blink);
+    if (existing?.files.original) files.original = existing.files.original;
     return this.repo.upsert({
       kind: 'character',
       key: c.id,
       name: c.name,
       description: c.description,
       files,
-      meta: { width: cut.width, height: cut.height, voice: c.voice, role: c.role, rig: RIG_VERSION, headTop: cut.tops[0], bodyCx: cut.centersX[0] },
+      meta: {
+        width: cut.width,
+        height: cut.height,
+        voice: c.voice,
+        role: c.role,
+        rig: RIG_VERSION,
+        headTop: cut.tops[0],
+        bodyCx: cut.centersX[0],
+        facing: existing?.meta.facing,
+        origin: existing?.meta.origin,
+        style: existing ? existing.meta.style : style?.tag,
+      },
     });
   }
 
@@ -203,6 +233,7 @@ export class AssetsStep {
     base: Asset | null,
     counts: Set<string> | undefined,
     warnings: string[],
+    style: StyleRef | null,
   ): Promise<Asset> {
     let asset = await this.repo.get('background', b.key);
     if (asset?.meta.verified === false) {
@@ -228,8 +259,8 @@ export class AssetsStep {
           )
         : await this.drawVerified(
             b,
-            (prompt) => this.gemini.image(`Vẽ bối cảnh ${b.key}`, prompt, { aspectRatio: '16:9' }),
-            backgroundPrompt(b.description, b.objects),
+            (prompt) => this.gemini.image(`Vẽ bối cảnh ${b.key}`, prompt, { aspectRatio: '16:9', images: style ? [style.image] : undefined }),
+            backgroundPrompt(b.description, b.objects, !!style),
             3,
           );
       if (problems.length) {
@@ -245,7 +276,15 @@ export class AssetsStep {
         name: b.key,
         description: b.description,
         files: { image: key },
-        meta: { width: meta.width, height: meta.height, boxes: {}, instances: {}, variantOf: base?.key, verified: !problems.length },
+        meta: {
+          width: meta.width,
+          height: meta.height,
+          boxes: {},
+          instances: {},
+          variantOf: base?.key,
+          verified: !problems.length,
+          style: base ? base.meta.style : style?.tag,
+        },
       });
     }
 

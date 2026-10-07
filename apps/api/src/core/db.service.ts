@@ -94,6 +94,19 @@ create table if not exists settings (
   updated_by uuid references users(id) on delete set null,
   updated_at timestamptz not null default now()
 );
+
+-- Tệp người dùng tải lên (tư liệu, ảnh phong cách, ảnh tham chiếu, mascot). text = nội dung AI đã đọc (cache).
+create table if not exists uploads (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null,
+  name text not null,
+  mime text not null,
+  size int not null,
+  file_key text not null,
+  text text,
+  created_by uuid references users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
 `;
 
 @Injectable()

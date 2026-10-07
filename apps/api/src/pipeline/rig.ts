@@ -294,6 +294,10 @@ export async function composeRig(images: Record<string, Buffer>, poseKeys: strin
     // Chỉ lấy phần dính liền với thân: chữ, hoạ tiết AI vẽ lơ lửng quanh người bị bỏ
     const body = components(opaque(img), w, h)[0];
     const attached = body ? fromComponents([body], n) : new Uint8Array(n);
+    // Mảnh rời khỏi thân coi như nền trong suốt: model ảnh hay để sót bóng mờ của bàn tay cũ khi đổi dáng tay
+    // (mascot chính diện), giữ nguyên thì bóng tay bị dán đè lên chỗ tay cũ thay vì xoá đi. Nới 2px để giữ mép mềm của thân.
+    const keep = dilate(attached, w, h, 2);
+    for (let i = 0; i < n; i++) if (!keep[i]) img.data[i * 4 + 3] = 0;
     // Vùng thay đổi thật (tay), bỏ vùng quá nhỏ và toàn bộ phần đầu
     const solid = solidChanges(idle, img, 48, 3);
     for (let i = 0; i < n; i++) if (!attached[i] && !idle.data[i * 4 + 3]) solid[i] = 0;

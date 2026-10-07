@@ -1,13 +1,15 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { STEP_LABELS, STORYBOARD_VERSION, type ProductionStep } from '@edu/shared';
+import sharp from 'sharp';
+import { STEP_LABELS, STORYBOARD_VERSION, type LessonIdea, type ProductionStep } from '@edu/shared';
 import { LessonsRepo } from '../core/lessons.repo.js';
 import { SoundService } from '../core/sound.service.js';
 import { StorageService } from '../core/storage.service.js';
+import { UploadsService } from '../core/uploads.service.js';
 import { usageContext, type UsageContext } from '../core/usage.service.js';
-import { AssetsStep } from './assets.step.js';
+import { AssetsStep, type StyleRef } from './assets.step.js';
 import { QaStep } from './qa.step.js';
 import { RenderStep } from './render.step.js';
-import { ScriptStep } from './script.step.js';
+import { ScriptStep, styleTag } from './script.step.js';
 import { StoryboardStep } from './storyboard.step.js';
 import { buildRenderProps } from './timeline.js';
 import { VoiceStep } from './voice.step.js';
@@ -29,6 +31,7 @@ export class PipelineService {
     @Inject(LessonsRepo) private readonly lessons: LessonsRepo,
     @Inject(StorageService) private readonly storage: StorageService,
     @Inject(SoundService) private readonly sound: SoundService,
+    @Inject(UploadsService) private readonly uploads: UploadsService,
     @Inject(ScriptStep) private readonly scriptStep: ScriptStep,
     @Inject(StoryboardStep) private readonly storyboardStep: StoryboardStep,
     @Inject(AssetsStep) private readonly assetsStep: AssetsStep,
@@ -60,6 +63,14 @@ export class PipelineService {
     await this.lessons.update(lessonId, { status: 'generating_script', step: 'script', progress: 10, error: null });
     await this.lessons.addEvent(lessonId, 'step', feedback ? 'AI đang viết lại kịch bản theo góp ý' : 'AI đang viết kịch bản');
     try {
+      const materials = lesson.idea.materialIds?.length ?? 0;
+      if (materials) {
+        await this.lessons.addEvent(lessonId, 'step', `AI đang đọc ${materials} tư liệu tham khảo`);
+        const read = await this.scriptStep.readMaterials(lesson.idea);
+        const chars = read.reduce((a, m) => a + m.text.length, 0);
+        await this.lessons.update(lessonId, { progress: 40 });
+        await this.lessons.addEvent(lessonId, 'step', `Đã đọc ${read.length} tư liệu (${chars.toLocaleString('vi-VN')} ký tự), đang viết kịch bản`);
+      }
       const script = await this.scriptStep.run(lesson.idea, feedback, lesson.script);
       await this.lessons.update(lessonId, {
         script,
@@ -97,12 +108,12 @@ export class PipelineService {
       // Storyboard kiểu cũ (trước khi có ngôn ngữ hình ảnh mới) được dàn dựng lại
       let board = restage || lesson.storyboard?.v !== STORYBOARD_VERSION ? null : lesson.storyboard;
       if (!board) {
-        board = await this.storyboardStep.run(script, restage ? lesson.feedback : null);
+        board = await this.storyboardStep.run(script, restage ? lesson.feedback : null, lesson.idea);
         await this.lessons.update(lessonId, { storyboard: board });
       }
 
       await enter('assets');
-      const assets = await this.assetsStep.run(script, board, progressFor('assets'));
+      const assets = await this.assetsStep.run(script, board, progressFor('assets'), await this.styleRef(lesson.idea));
       for (const w of assets.warnings) await this.lessons.addEvent(lessonId, 'warn', w);
 
       await enter('voice');
@@ -153,6 +164,15 @@ export class PipelineService {
     } catch (err) {
       await this.fail(lessonId, current, err);
     }
+  }
+
+  /** Ảnh phong cách của bài (thu nhỏ, đổi sang PNG để gửi kèm khi vẽ) */
+  private async styleRef(idea: LessonIdea): Promise<StyleRef | null> {
+    const tag = styleTag(idea);
+    if (!idea.styleRefId || !tag) return null;
+    const { data } = await this.uploads.image(idea.styleRefId, ['style']);
+    const image = await sharp(data).resize({ width: 1536, height: 1536, fit: 'inside', withoutEnlargement: true }).png().toBuffer();
+    return { image, mime: 'image/png', tag };
   }
 
   private async mustGet(id: string) {

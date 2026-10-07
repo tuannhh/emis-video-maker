@@ -1,6 +1,7 @@
 import type {
   Asset,
   AudioSettings,
+  CharacterPreview,
   Lesson,
   LessonEvent,
   LessonIdea,
@@ -9,6 +10,8 @@ import type {
   SfxId,
   SystemSettings,
   UsageSummary,
+  UploadKind,
+  UploadView,
   UserRole,
   UserView,
 } from '@edu/shared';
@@ -74,6 +77,14 @@ const upload = <T>(path: string, file: File) =>
     headers: { 'Content-Type': file.type || 'audio/mpeg' },
   });
 
+/** Gửi thẳng nội dung tệp (tư liệu, ảnh) trong thân request */
+const uploadFile = (kind: UploadKind, file: Blob, name: string) =>
+  request<UploadView>(`/api/uploads?kind=${kind}&name=${encodeURIComponent(name)}`, {
+    method: 'POST',
+    body: file,
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+  });
+
 export type LessonPayload = { lesson: LessonView; events: LessonEvent[] };
 
 export const api = {
@@ -96,6 +107,16 @@ export const api = {
     request<SystemSettings>('/api/settings/gemini-key', { method: 'PUT', body: JSON.stringify({ apiKey }) }),
   clearGeminiKey: () => request<SystemSettings>('/api/settings/gemini-key', { method: 'DELETE' }),
   usageByLesson: () => request<LessonUsage[]>('/api/usage/lessons'),
+
+  uploadFile,
+  listUploads: (ids: string[]) => request<UploadView[]>(`/api/uploads?ids=${ids.join(',')}`),
+  suggestCharacter: (body: { referenceId?: string; draft?: string; topic?: string; subject?: string; grade?: string }) =>
+    request<{ prompt: string }>('/api/characters/suggest', { method: 'POST', body: JSON.stringify(body) }),
+  previewCharacter: (
+    body: { mode: 'mascot'; uploadId: string } | { mode: 'design'; prompt: string; referenceId?: string; styleId?: string },
+  ) => request<CharacterPreview>('/api/characters/preview', { method: 'POST', body: JSON.stringify(body) }),
+  createCharacter: (body: { previewId: string; name: string; voice: string; role: string; description?: string }) =>
+    request<Asset>('/api/characters', { method: 'POST', body: JSON.stringify(body) }),
 
   listLessons: () => request<LessonView[]>('/api/lessons'),
   getLesson: (id: string) => request<LessonPayload>(`/api/lessons/${id}`),

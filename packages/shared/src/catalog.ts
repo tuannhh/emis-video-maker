@@ -135,5 +135,7 @@ export const USAGE_STEP_LABELS: Record<string, string> = {
   music: 'Nhạc nền',
   render: 'Render',
   qa: 'AI kiểm tra',
+  materials: 'Đọc tư liệu',
+  library: 'Tạo nhân vật (thư viện)',
   other: 'Khác',
 };

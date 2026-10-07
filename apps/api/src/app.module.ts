@@ -5,6 +5,8 @@ import { AssetsController } from './http/assets.controller.js';
 import { AuthController, SettingsController, UsersController } from './http/auth.controller.js';
 import { AuthGuard } from './http/auth.guard.js';
 import { AuthService } from './http/auth.service.js';
+import { CharactersService } from './http/characters.service.js';
+import { CharactersController, UploadsController } from './http/uploads.controller.js';
 import { FilesController } from './http/files.controller.js';
 import { LessonsController } from './http/lessons.controller.js';
 import { LessonsService } from './http/lessons.service.js';
@@ -22,7 +24,9 @@ import { UsageController } from './http/usage.controller.js';
     FilesController,
     SoundsController,
     UsageController,
+    UploadsController,
+    CharactersController,
   ],
-  providers: [AuthService, LessonsService, { provide: APP_GUARD, useClass: AuthGuard }],
+  providers: [AuthService, LessonsService, CharactersService, { provide: APP_GUARD, useClass: AuthGuard }],
 })
 export class AppModule {}

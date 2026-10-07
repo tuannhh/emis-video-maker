@@ -126,7 +126,7 @@ export function buildRenderProps(input: TimelineInput): { props: LessonRenderPro
       height: a.meta.height ?? 1400,
       headTop: a.meta.headTop ?? 0.01,
       bodyCx: a.meta.bodyCx ?? 0.5,
-      facing: rigged ? 'right' : 'front',
+      facing: a.meta.facing ?? (rigged ? 'right' : 'front'),
     };
   }
   const nameOf = (id: string) => script.characters.find((c) => c.id === id)?.name ?? id;
