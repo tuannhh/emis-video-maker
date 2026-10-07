@@ -20,6 +20,7 @@ import { AssetsRepo } from '../core/assets.repo.js';
 import { SoundService, audioExt } from '../core/sound.service.js';
 import { StorageService } from '../core/storage.service.js';
 import { usageContext } from '../core/usage.service.js';
+import { AdminOnly } from './auth.guard.js';
 import { ZodPipe } from './zod.pipe.js';
 
 const GenerateSchema = z.object({
@@ -68,6 +69,8 @@ export class SoundsController {
     return { ...asset, url: this.storage.publicUrl(asset.files.audio) };
   }
 
+  /** Nhạc mặc định và kho hiệu ứng là cấu hình chung: chỉ admin đổi */
+  @AdminOnly()
   @Post('music/:id/default')
   @HttpCode(204)
   async setDefault(@Param('id', ParseUUIDPipe) id: string) {
@@ -76,6 +79,7 @@ export class SoundsController {
     await this.sound.setDefaultMusic(id);
   }
 
+  @AdminOnly()
   @Delete('music/:id')
   @HttpCode(204)
   async deleteMusic(@Param('id', ParseUUIDPipe) id: string) {
@@ -90,6 +94,7 @@ export class SoundsController {
   }
 
   /** Thay một hiệu ứng có sẵn bằng file của người dùng */
+  @AdminOnly()
   @Post('sfx/:id/upload')
   async uploadSfx(@Param('id') id: string, @Req() req: Request, @Query('name') name?: string) {
     if (!SFX_IDS.includes(id as SfxId)) throw new NotFoundException('Không có hiệu ứng này');
@@ -99,6 +104,7 @@ export class SoundsController {
   }
 
   /** Bỏ file thay thế, quay về hiệu ứng tổng hợp sẵn */
+  @AdminOnly()
   @Delete('sfx/:id')
   async resetSfx(@Param('id') id: string) {
     const a = await this.repo.get('sfx', id);

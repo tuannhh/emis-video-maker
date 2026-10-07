@@ -1,0 +1,18 @@
+# Chỉ gửi mã nguồn lên Cloud Build (không gửi .env, dữ liệu, node_modules)
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+**/node_modules
+**/dist
+**/.next
+**/*.tsbuildinfo
+data/
+*.log
+*.wav
+*.mp4
+.remotion
+.tmp
+.claude
+.deploy-env*

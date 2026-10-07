@@ -1,6 +1,7 @@
 import { Controller, Delete, Get, HttpCode, Inject, NotFoundException, Param, ParseUUIDPipe } from '@nestjs/common';
 import { AssetsRepo } from '../core/assets.repo.js';
 import { StorageService } from '../core/storage.service.js';
+import { AdminOnly } from './auth.guard.js';
 
 @Controller('api/assets')
 export class AssetsController {
@@ -19,6 +20,7 @@ export class AssetsController {
   }
 
   /** Xoá khỏi thư viện: lần sản xuất sau AI sẽ vẽ lại tài sản này. */
+  @AdminOnly()
   @Delete(':id')
   @HttpCode(204)
   async delete(@Param('id', ParseUUIDPipe) id: string) {

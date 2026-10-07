@@ -9,7 +9,8 @@
     "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
     "dev:worker": "tsx watch --env-file-if-exists=../../.env src/worker.ts",
     "start": "node dist/main.js",
-    "start:worker": "node dist/worker.js"
+    "start:worker": "node dist/worker.js",
+    "start:job": "node dist/job.js"
   },
   "dependencies": {
     "@edu/shared": "workspace:*",

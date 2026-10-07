@@ -1,24 +1,21 @@
-import { InjectQueue } from '@nestjs/bullmq';
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import type { Queue } from 'bullmq';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { lessonPath, type AudioSettings, type Lesson, type LessonIdea, type LessonScript, type LessonStatus } from '@edu/shared';
 import { LessonsRepo } from '../core/lessons.repo.js';
-import { LESSON_QUEUE, type LessonJobName, type ProduceJobData, type ScriptJobData } from '../core/queue.js';
+import { JobsService } from '../core/jobs.service.js';
+import type { LessonJobName, ProduceJobData, ScriptJobData } from '../core/queue.js';
 import { StorageService } from '../core/storage.service.js';
 import { sanitizeScript } from '../pipeline/script.step.js';
-
-const JOB_OPTS = { attempts: 1, removeOnComplete: 200, removeOnFail: 200 };
 
 @Injectable()
 export class LessonsService {
   constructor(
     @Inject(LessonsRepo) private readonly repo: LessonsRepo,
     @Inject(StorageService) private readonly storage: StorageService,
-    @InjectQueue(LESSON_QUEUE) private readonly queue: Queue,
+    @Inject(JobsService) private readonly jobs: JobsService,
   ) {}
 
   private enqueue(name: LessonJobName, data: ScriptJobData | ProduceJobData) {
-    return this.queue.add(name, data, JOB_OPTS);
+    return this.jobs.enqueue(name, data);
   }
 
   async get(id: string) {
@@ -33,8 +30,8 @@ export class LessonsService {
     }
   }
 
-  async create(idea: LessonIdea) {
-    const lesson = await this.repo.create(idea);
+  async create(idea: LessonIdea, userId: string) {
+    const lesson = await this.repo.create(idea, userId);
     await this.repo.addEvent(lesson.id, 'created', 'Đã nhận ý tưởng');
     await this.enqueue('script', { lessonId: lesson.id });
     return lesson;
@@ -114,8 +111,12 @@ export class LessonsService {
     }
   }
 
-  async delete(id: string) {
+  /** Chỉ người tạo bài hoặc admin được xoá */
+  async delete(id: string, user: { id: string; role: string }) {
     const lesson = await this.get(id);
+    if (user.role !== 'admin' && lesson.createdBy !== user.id) {
+      throw new ForbiddenException('Chỉ người tạo bài hoặc admin mới được xoá bài học này');
+    }
     if (lesson.status === 'producing' || lesson.status === 'generating_script') {
       throw new ConflictException('Bài học đang được xử lý, không thể xoá lúc này');
     }

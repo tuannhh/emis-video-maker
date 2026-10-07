@@ -7,7 +7,10 @@ import type {
   LessonScript,
   LessonStatus,
   SfxId,
+  SystemSettings,
   UsageSummary,
+  UserRole,
+  UserView,
 } from '@edu/shared';
 
 export type LessonView = Lesson & {
@@ -18,6 +21,17 @@ export type LessonView = Lesson & {
 };
 export type AssetView = Asset & { urls: Record<string, string> };
 export type MusicView = Asset & { url: string };
+export interface LessonUsage {
+  lessonId: string | null;
+  title: string | null;
+  code: string | null;
+  creatorId: string | null;
+  creatorName: string | null;
+  calls: number;
+  totalTokens: number;
+  costUsd: number | null;
+  lastAt: string;
+}
 export interface SfxView {
   id: SfxId;
   description: string;
@@ -31,6 +45,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     cache: 'no-store',
   });
+  // Phiên hết hạn / bị thu hồi: về trang đăng nhập, quay lại trang này sau khi đăng nhập
+  if (res.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+    window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  }
   if (!res.ok) {
     let message = `Lỗi ${res.status}`;
     try {
@@ -59,6 +77,26 @@ const upload = <T>(path: string, file: File) =>
 export type LessonPayload = { lesson: LessonView; events: LessonEvent[] };
 
 export const api = {
+  login: (email: string, password: string) =>
+    request<UserView>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  logout: () => post('/api/auth/logout'),
+  me: () => request<UserView>('/api/auth/me'),
+  changePassword: (current: string, next: string) =>
+    request<void>('/api/auth/password', { method: 'PUT', body: JSON.stringify({ current, next }) }),
+
+  listUsers: () => request<UserView[]>('/api/users'),
+  createUser: (body: { email: string; name: string; role: UserRole; password: string }) =>
+    request<UserView>('/api/users', { method: 'POST', body: JSON.stringify(body) }),
+  updateUser: (id: string, patch: { name?: string; role?: UserRole; active?: boolean; password?: string }) =>
+    request<UserView>(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteUser: (id: string) => request<void>(`/api/users/${id}`, { method: 'DELETE' }),
+
+  settings: () => request<SystemSettings>('/api/settings'),
+  setGeminiKey: (apiKey: string) =>
+    request<SystemSettings>('/api/settings/gemini-key', { method: 'PUT', body: JSON.stringify({ apiKey }) }),
+  clearGeminiKey: () => request<SystemSettings>('/api/settings/gemini-key', { method: 'DELETE' }),
+  usageByLesson: () => request<LessonUsage[]>('/api/usage/lessons'),
+
   listLessons: () => request<LessonView[]>('/api/lessons'),
   getLesson: (id: string) => request<LessonPayload>(`/api/lessons/${id}`),
   getLessonByCode: (code: string) => request<LessonPayload>(`/api/lessons/by-code/${code}`),

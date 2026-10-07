@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { GoogleGenAI, type Part } from '@google/genai';
 import { z } from 'zod';
 import { config } from './config.js';
+import { SettingsService } from './settings.service.js';
 import { UsageService, type GeminiUsageMetadata } from './usage.service.js';
 
 const REST = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -54,16 +55,32 @@ function toGeminiSchema(schema: z.ZodType): unknown {
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
-  readonly ai = new GoogleGenAI({ apiKey: config.gemini.apiKey });
   private readonly imageSlots = new Semaphore(4);
+  private sdk: { key: string; ai: GoogleGenAI } | null = null;
 
-  constructor(@Inject(UsageService) private readonly usage: UsageService) {}
+  constructor(
+    @Inject(UsageService) private readonly usage: UsageService,
+    @Inject(SettingsService) private readonly settings: SettingsService,
+  ) {}
+
+  /** Key do admin nhập trên trang Cài đặt (đổi key không cần khởi động lại) */
+  private async key() {
+    const key = await this.settings.geminiKey();
+    if (!key) throw new GeminiError('Chưa có Gemini API key: admin vào trang Cài đặt để nhập key');
+    return key;
+  }
+
+  private async ai() {
+    const key = await this.key();
+    if (this.sdk?.key !== key) this.sdk = { key, ai: new GoogleGenAI({ apiKey: key }) };
+    return this.sdk.ai;
+  }
 
   /** Gọi REST trực tiếp (SDK hiện bỏ mất speechMetadata của từng part). */
   private async rest(model: string, body: unknown): Promise<any> {
     const res = await fetch(`${REST}/${model}:generateContent`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': await this.key() },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(180_000),
     });
@@ -101,8 +118,8 @@ export class GeminiService {
     let contents = [{ role: 'user', parts }];
     for (let attempt = 0; attempt < 2; attempt++) {
       const model = opts.model ?? config.gemini.textModel;
-      const res = await this.withRetry(label, () =>
-        this.ai.models.generateContent({
+      const res = await this.withRetry(label, async () =>
+        (await this.ai()).models.generateContent({
           model,
           contents,
           config: {
@@ -145,7 +162,7 @@ export class GeminiService {
       { text: prompt },
     ];
     return this.withRetry(label, () => this.imageSlots.run(async () => {
-      const res = await this.ai.models.generateContent({
+      const res = await (await this.ai()).models.generateContent({
         model: config.gemini.imageModel,
         contents: [{ role: 'user', parts }],
         config: {
@@ -217,8 +234,8 @@ export class GeminiService {
 
   /** Chép lời một đoạn âm thanh (dùng để kiểm tra TTS có đọc nhầm chỉ dẫn không). */
   async transcribe(label: string, wav: Buffer, prompt: string): Promise<string> {
-    const res = await this.withRetry(label, () =>
-      this.ai.models.generateContent({
+    const res = await this.withRetry(label, async () =>
+      (await this.ai()).models.generateContent({
         model: config.gemini.textModel,
         contents: [
           { role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: wav.toString('base64') } }, { text: prompt }] },
@@ -232,21 +249,22 @@ export class GeminiService {
 
   /** Tải video lên Gemini Files API và chờ xử lý xong. */
   async uploadVideo(filePath: string) {
+    const ai = await this.ai();
     let file = await this.withRetry('Tải video lên Gemini', () =>
-      this.ai.files.upload({ file: filePath, config: { mimeType: 'video/mp4' } }),
+      ai.files.upload({ file: filePath, config: { mimeType: 'video/mp4' } }),
     );
     const started = Date.now();
     while (file.state === 'PROCESSING') {
       if (Date.now() - started > 5 * 60_000) throw new GeminiError('Gemini xử lý video quá lâu');
       await new Promise((r) => setTimeout(r, 4000));
-      file = await this.ai.files.get({ name: file.name! });
+      file = await ai.files.get({ name: file.name! });
     }
     if (file.state === 'FAILED') throw new GeminiError('Gemini không xử lý được video');
     return file;
   }
 
   async deleteFile(name: string) {
-    await this.ai.files.delete({ name }).catch(() => undefined);
+    await (await this.ai()).files.delete({ name }).catch(() => undefined);
   }
 }
 

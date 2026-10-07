@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { PRODUCTION_STEPS, STEP_LABELS, type LessonEvent, type LessonScript } from '@edu/shared';
 import { AudioCard } from '@/components/AudioCard';
 import { ScriptEditor } from '@/components/ScriptEditor';
+import { useSession } from '@/components/Session';
 import { StatusBadge } from '@/components/StatusBadge';
 import { UsageCard } from '@/components/UsageCard';
 import { api, formatTime, slugFileName, type LessonPayload, type LessonView } from '@/lib/api';
@@ -12,6 +13,7 @@ import { api, formatTime, slugFileName, type LessonPayload, type LessonView } fr
 /** Trang chi tiết bài học; `fetcher` lấy bài theo mã (URL mới) hoặc theo id (URL cũ). */
 export function LessonDetail({ fetcher }: { fetcher: () => Promise<LessonPayload> }) {
   const router = useRouter();
+  const { user, isAdmin } = useSession();
   const [lesson, setLesson] = useState<LessonView | null>(null);
   const [events, setEvents] = useState<LessonEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -65,10 +67,11 @@ export function LessonDetail({ fetcher }: { fetcher: () => Promise<LessonPayload
             <StatusBadge status={lesson.status} />
             <span className="muted small">
               {lesson.idea.subject} · {lesson.idea.grade} · khoảng {lesson.idea.durationSec} giây
+              {lesson.creatorName ? ` · tạo bởi ${lesson.creatorName}` : ''}
             </span>
           </div>
         </div>
-        {!busy ? (
+        {!busy && (isAdmin || (user && lesson.createdBy === user.id)) ? (
           <button className="btn btn-danger btn-sm" onClick={remove}>
             Xoá bài học
           </button>
@@ -81,7 +84,7 @@ export function LessonDetail({ fetcher }: { fetcher: () => Promise<LessonPayload
           <ScriptReview lesson={lesson} script={lesson.script} onDone={load} />
           <div className="grid-2" style={{ marginTop: 16 }}>
             <AudioCard lesson={lesson} onSaved={load} />
-            <UsageCard lesson={lesson} />
+            {isAdmin ? <UsageCard lesson={lesson} /> : null}
           </div>
         </>
       ) : (
@@ -96,7 +99,7 @@ export function LessonDetail({ fetcher }: { fetcher: () => Promise<LessonPayload
           </div>
           <aside>
             {lesson.status !== 'generating_script' ? <AudioCard lesson={lesson} onSaved={load} /> : null}
-            <UsageCard lesson={lesson} />
+            {isAdmin ? <UsageCard lesson={lesson} /> : null}
             <div className="card">
               <h2 style={{ marginBottom: 10 }}>Nhật ký</h2>
               <EventLog events={events} />

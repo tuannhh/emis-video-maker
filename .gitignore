@@ -8,3 +8,4 @@ data/
 .remotion
 .tmp
 *.tsbuildinfo
+.deploy-env*

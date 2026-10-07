@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import { Nav } from '@/components/Nav';
+import { SessionProvider } from '@/components/Session';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Edu Video AI',
+  title: 'EMIS Video Maker',
   description: 'Tạo video bài học hoạt hình tự động bằng AI',
 };
 
@@ -19,15 +20,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <header className="topbar">
-          <div className="topbar-inner">
-            <a href="/" className="brand">
-              <span className="brand-mark">▶</span> Edu Video AI
-            </a>
-            <Nav />
-          </div>
-        </header>
-        {children}
+        <SessionProvider>
+          <header className="topbar">
+            <div className="topbar-inner">
+              <a href="/" className="brand">
+                <span className="brand-mark">▶</span> EMIS Video Maker
+              </a>
+              <Nav />
+            </div>
+          </header>
+          {children}
+        </SessionProvider>
       </body>
     </html>
   );

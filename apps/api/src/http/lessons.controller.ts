@@ -22,6 +22,8 @@ import {
 } from '@edu/shared';
 import { LessonsRepo } from '../core/lessons.repo.js';
 import { UsageService } from '../core/usage.service.js';
+import { AdminOnly, CurrentUser } from './auth.guard.js';
+import type { SessionUser } from './auth.service.js';
 import { LessonsService } from './lessons.service.js';
 import { ZodPipe } from './zod.pipe.js';
 
@@ -37,10 +39,12 @@ export class LessonsController {
     @Inject(UsageService) private readonly usage: UsageService,
   ) {}
 
+  /** Mọi thành viên thấy mọi bài; số token (chi phí) chỉ admin thấy */
   @Get()
-  async list() {
-    const [lessons, tokens] = await Promise.all([this.repo.list(), this.usage.totalsByLesson()]);
-    return lessons.map((l) => ({ ...this.service.withUrls(l), tokens: tokens[l.id] ?? 0 }));
+  async list(@CurrentUser() user: SessionUser) {
+    const admin = user.role === 'admin';
+    const [lessons, tokens] = await Promise.all([this.repo.list(), admin ? this.usage.totalsByLesson() : ({} as Record<string, number>)]);
+    return lessons.map((l) => ({ ...this.service.withUrls(l), ...(admin ? { tokens: tokens[l.id] ?? 0 } : {}) }));
   }
 
   /** Tìm bài theo mã 6 ký tự ở cuối URL /{môn}/{lớp}/{tên-bài}/{mã} */
@@ -53,8 +57,8 @@ export class LessonsController {
   }
 
   @Post()
-  async create(@Body(new ZodPipe(LessonIdeaSchema)) idea: LessonIdea) {
-    return this.service.create(idea);
+  async create(@CurrentUser() user: SessionUser, @Body(new ZodPipe(LessonIdeaSchema)) idea: LessonIdea) {
+    return this.service.create(idea, user.id);
   }
 
   @Get(':id')
@@ -64,6 +68,7 @@ export class LessonsController {
   }
 
   /** Tổng token Gemini của bài (mọi lần tạo và làm lại) */
+  @AdminOnly()
   @Get(':id/usage')
   async usageOf(@Param('id', ParseUUIDPipe) id: string) {
     await this.service.get(id);
@@ -118,7 +123,7 @@ export class LessonsController {
 
   @Delete(':id')
   @HttpCode(204)
-  async delete(@Param('id', ParseUUIDPipe) id: string) {
-    await this.service.delete(id);
+  async delete(@CurrentUser() user: SessionUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.service.delete(id, user);
   }
 }

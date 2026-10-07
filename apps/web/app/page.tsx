@@ -54,7 +54,7 @@ export default function HomePage() {
                       </span>
                     </div>
                     <div className="muted small" style={{ marginTop: 6 }}>
-                      Cập nhật {formatTime(l.updatedAt)}
+                      {l.creatorName ? `${l.creatorName} · ` : ''}Cập nhật {formatTime(l.updatedAt)}
                       {l.tokens ? ` · ${formatTokens(l.tokens)} token` : ''}
                     </div>
                   </div>

@@ -24,6 +24,9 @@ const COLUMNS: Record<string, string> = {
   feedback: 'feedback',
   audio: 'audio',
 };
+/** Kèm tên người tạo bài */
+const SELECT = 'select l.*, u.name as creator_name from lessons l left join users u on u.id = l.created_by';
+
 const JSON_COLUMNS = new Set(['script', 'storyboard', 'output', 'qa', 'audio']);
 
 function toLesson(r: any): Lesson {
@@ -43,6 +46,8 @@ function toLesson(r: any): Lesson {
     feedback: r.feedback,
     // Bài cũ chưa có cài đặt âm thanh: dùng mặc định (hoặc cài đặt lúc tạo)
     audio: AudioSettingsSchema.parse(r.audio ?? r.idea?.audio ?? {}),
+    createdBy: r.created_by ?? null,
+    creatorName: r.creator_name ?? null,
     createdAt: r.created_at.toISOString(),
     updatedAt: r.updated_at.toISOString(),
   };
@@ -52,16 +57,16 @@ function toLesson(r: any): Lesson {
 export class LessonsRepo {
   constructor(@Inject(DbService) private readonly db: DbService) {}
 
-  async create(idea: LessonIdea): Promise<Lesson> {
+  async create(idea: LessonIdea, userId: string | null): Promise<Lesson> {
     const audio = AudioSettingsSchema.parse(idea.audio ?? {});
     for (let attempt = 0; ; attempt++) {
       try {
         const row = await this.db.one(
-          `insert into lessons (title, idea, status, step, code, audio)
-           values ($1, $2, 'generating_script', 'script', $3, $4) returning *`,
-          [idea.topic.slice(0, 200), JSON.stringify(idea), randomCode(), JSON.stringify(audio)],
+          `insert into lessons (title, idea, status, step, code, audio, created_by)
+           values ($1, $2, 'generating_script', 'script', $3, $4, $5) returning id`,
+          [idea.topic.slice(0, 200), JSON.stringify(idea), randomCode(), JSON.stringify(audio), userId],
         );
-        return toLesson(row);
+        return (await this.get(row.id))!;
       } catch (err) {
         // Trùng mã (rất hiếm): sinh mã khác
         if ((err as { code?: string }).code !== '23505' || attempt >= 5) throw err;
@@ -70,17 +75,17 @@ export class LessonsRepo {
   }
 
   async getByCode(code: string): Promise<Lesson | null> {
-    const row = await this.db.one('select * from lessons where code = $1', [code]);
+    const row = await this.db.one(`${SELECT} where l.code = $1`, [code]);
     return row ? toLesson(row) : null;
   }
 
   async get(id: string): Promise<Lesson | null> {
-    const row = await this.db.one('select * from lessons where id = $1', [id]);
+    const row = await this.db.one(`${SELECT} where l.id = $1`, [id]);
     return row ? toLesson(row) : null;
   }
 
   async list(): Promise<Lesson[]> {
-    const rows = await this.db.query('select * from lessons order by created_at desc limit 200');
+    const rows = await this.db.query(`${SELECT} order by l.created_at desc limit 200`);
     return rows.map(toLesson);
   }
 

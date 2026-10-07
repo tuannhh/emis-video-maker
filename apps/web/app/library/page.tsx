@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { VOICES, type SfxId } from '@edu/shared';
+import { useSession } from '@/components/Session';
 import { api, type AssetView, type MusicView, type SfxView } from '@/lib/api';
 
 const POSE_LABELS: [string, string][] = [
@@ -14,6 +15,7 @@ const POSE_LABELS: [string, string][] = [
 ];
 
 export default function LibraryPage() {
+  const { isAdmin } = useSession();
   const [assets, setAssets] = useState<AssetView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,9 +86,11 @@ export default function LibraryPage() {
                   <p className="muted" style={{ margin: '6px 0' }} title={a.description}>
                     {a.description.length > 110 ? `${a.description.slice(0, 110)}…` : a.description}
                   </p>
-                  <button className="btn btn-danger btn-sm" onClick={() => remove(a)}>
-                    Xoá để vẽ lại
-                  </button>
+                  {isAdmin ? (
+                    <button className="btn btn-danger btn-sm" onClick={() => remove(a)}>
+                      Xoá để vẽ lại
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -120,9 +124,11 @@ export default function LibraryPage() {
                   <p className="muted" style={{ margin: '6px 0' }} title={a.description}>
                     {a.description.length > 140 ? `${a.description.slice(0, 140)}…` : a.description}
                   </p>
-                  <button className="btn btn-danger btn-sm" onClick={() => remove(a)}>
-                    Xoá để vẽ lại
-                  </button>
+                  {isAdmin ? (
+                    <button className="btn btn-danger btn-sm" onClick={() => remove(a)}>
+                      Xoá để vẽ lại
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -137,6 +143,7 @@ export default function LibraryPage() {
 }
 
 function MusicSection() {
+  const { isAdmin } = useSession();
   const [music, setMusic] = useState<MusicView[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -200,7 +207,7 @@ function MusicSection() {
                 <div className="muted small">{m.meta.source === 'ai' ? 'AI sáng tác (Lyria)' : 'Tải lên'}</div>
               </div>
               <audio src={m.url} controls preload="none" />
-              <div className="actions">
+              <div className="actions" hidden={!isAdmin}>
                 {!m.meta.isDefault ? (
                   <button className="btn btn-sm" disabled={!!busy} onClick={() => act('def', () => api.setDefaultMusic(m.id))}>
                     Đặt mặc định
@@ -223,6 +230,7 @@ function MusicSection() {
 }
 
 function SfxSection() {
+  const { isAdmin } = useSession();
   const [sfx, setSfx] = useState<SfxView[] | null>(null);
   const [busy, setBusy] = useState<SfxId | null>(null);
   const [target, setTarget] = useState<SfxId | null>(null);
@@ -273,7 +281,7 @@ function SfxSection() {
               <div className="muted small">{x.description}</div>
             </div>
             <audio key={x.url} src={x.url} controls preload="none" />
-            <div className="actions">
+            <div className="actions" hidden={!isAdmin}>
               <button
                 className="btn btn-sm"
                 disabled={!!busy}

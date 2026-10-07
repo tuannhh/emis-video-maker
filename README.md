@@ -1,4 +1,4 @@
-# Edu Video AI
+# EMIS Video Maker
 
 Tạo video bài học hoạt hình 2D tự động bằng Gemini. Con người chỉ làm 4 việc:
 **đưa ý tưởng → duyệt kịch bản → duyệt thành phẩm → tự tải về đăng lên mạng xã hội**.
@@ -23,11 +23,32 @@ Tạo video bài học hoạt hình 2D tự động bằng Gemini. Con người 
 ## Chạy bằng Docker Compose
 
 ```bash
-cp .env.example .env        # điền GEMINI_API_KEY
+cp .env.example .env        # điền APP_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD (GEMINI_API_KEY không bắt buộc)
 docker compose up -d --build
 ```
 
-Mở http://localhost:3100.
+Mở http://localhost:3100, đăng nhập bằng `ADMIN_EMAIL` / `ADMIN_PASSWORD` (tài khoản admin được tạo ở lần chạy đầu),
+rồi vào **Cài đặt** nhập Gemini API key.
+
+Triển khai lên Google Cloud Run: xem [docs/deploy-cloud-run.md](docs/deploy-cloud-run.md).
+
+## Tài khoản và phân quyền
+
+| | Admin | Thành viên |
+|---|---|---|
+| Tạo bài, duyệt/sửa kịch bản, dựng lại, đổi nhạc, tải MP4/SRT/thumbnail | ✓ | ✓ (mọi bài) |
+| Xoá bài học | ✓ | chỉ bài mình tạo |
+| Thư viện: xem, tải nhạc lên, AI sáng tác nhạc | ✓ | ✓ |
+| Thư viện: xoá nhân vật/bối cảnh, đặt nhạc mặc định, thay hiệu ứng | ✓ | |
+| Gemini API key, báo cáo chi phí / token, quản lý thành viên | ✓ | |
+
+- Admin thêm thành viên ở trang **Thành viên** (đặt mật khẩu ban đầu, đổi quyền, khoá, đặt lại mật khẩu). Mỗi người tự đổi mật khẩu ở menu tài khoản.
+- Mật khẩu băm scrypt. Phiên đăng nhập là cookie HttpOnly ký HMAC (14 ngày); đổi mật khẩu hoặc khoá tài khoản sẽ thu hồi mọi phiên cũ.
+  Sai mật khẩu 5 lần trong 15 phút thì tạm khoá đăng nhập.
+- Gemini API key do admin nhập trên trang **Cài đặt**: hệ thống gọi thử Gemini trước khi lưu, mã hoá AES-256-GCM (khoá dẫn xuất từ
+  `APP_SECRET`) rồi lưu DB, chỉ hiện 4 ký tự cuối. Đổi key có hiệu lực ngay, không cần khởi động lại. `GEMINI_API_KEY` trong môi trường
+  chỉ là dự phòng khi chưa nhập key.
+- File (`/files/...`) cũng cần đăng nhập; renderer dùng link nội bộ có chữ ký riêng cho từng file.
 
 | Service | Vai trò |
 |---|---|
@@ -84,7 +105,8 @@ thì URL tự cập nhật, link cũ (kể cả `/lessons/{id}`) vẫn mở đư
 
 Mọi lượt gọi Gemini (viết kịch bản, dàn dựng, vẽ, định vị, lồng tiếng, kiểm tra lời đọc, sáng tác nhạc, AI xem video) được ghi vào
 bảng `gemini_usage` theo bài học và bước, **cộng dồn cả các lần viết lại / dựng lại**. Trang bài học hiện tổng token, theo bước,
-theo model và theo loại dữ liệu (chữ/ảnh/âm thanh). `GET /api/lessons/{id}/usage` cho từng bài, `GET /api/usage` cho toàn hệ thống.
+theo model và theo loại dữ liệu (chữ/ảnh/âm thanh); trang **Báo cáo** tổng hợp theo bài, theo thành viên, theo bước và model.
+Chỉ admin xem được: `GET /api/lessons/{id}/usage`, `GET /api/usage`, `GET /api/usage/lessons`.
 
 Để tự tính tiền, khai báo giá (USD / 1 triệu token) trong `.env`:
 

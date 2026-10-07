@@ -240,6 +240,9 @@ export interface Lesson {
   qa: QaReport | null;
   feedback: string | null;
   audio: AudioSettings;
+  /** Thành viên tạo bài (null = bài tạo trước khi có tài khoản, hoặc người tạo đã bị xoá) */
+  createdBy: string | null;
+  creatorName: string | null;
   createdAt: string;
   updatedAt: string;
 }

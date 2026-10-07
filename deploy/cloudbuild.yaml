@@ -1,0 +1,26 @@
+# Build 2 image (backend dùng cho API + Cloud Run Job, web) rồi đẩy lên Artifact Registry.
+# Gọi từ deploy/deploy.sh: gcloud builds submit --config deploy/cloudbuild.yaml --substitutions ...
+steps:
+  - id: backend
+    name: gcr.io/cloud-builders/docker
+    args: ['build', '-f', 'docker/backend.Dockerfile', '-t', '${_REPO}/backend:${_TAG}', '.']
+    waitFor: ['-']
+  - id: web
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - docker/web.Dockerfile
+      - --build-arg
+      - API_INTERNAL_URL=${_API_URL}
+      - -t
+      - ${_REPO}/web:${_TAG}
+      - .
+    waitFor: ['-']
+images:
+  - ${_REPO}/backend:${_TAG}
+  - ${_REPO}/web:${_TAG}
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1800s

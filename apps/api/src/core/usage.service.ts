@@ -54,6 +54,19 @@ function detail(list: GeminiUsageMetadata['promptTokensDetails']) {
   return out;
 }
 
+export interface LessonUsage {
+  /** null = các bài đã bị xoá */
+  lessonId: string | null;
+  title: string | null;
+  code: string | null;
+  creatorId: string | null;
+  creatorName: string | null;
+  calls: number;
+  totalTokens: number;
+  costUsd: number | null;
+  lastAt: string;
+}
+
 function add(into: Record<string, number>, from: Record<string, number>) {
   for (const [k, v] of Object.entries(from)) into[k] = (into[k] ?? 0) + v;
 }
@@ -193,6 +206,47 @@ export class UsageService {
       byModel: models,
       byStep: [...byStep.values()].sort((a, b) => b.totalTokens - a.totalTokens),
     };
+  }
+
+  /** Chi phí từng bài (kể cả bài đã xoá, gộp vào một dòng), kèm người tạo — cho trang báo cáo */
+  async byLesson(): Promise<LessonUsage[]> {
+    const rows = await this.db.query(
+      `select g.lesson_id, g.model, count(*)::int as calls, sum(g.output_tokens)::bigint as output,
+              sum(g.thoughts_tokens)::bigint as thoughts, sum(g.total_tokens)::bigint as total,
+              jsonb_agg(g.input_detail) as inputs, jsonb_agg(g.output_detail) as outputs,
+              max(g.created_at) as last_at, min(l.title) as title, min(l.code) as code,
+              min(u.name) as creator, min(l.created_by::text) as creator_id
+         from gemini_usage g
+         left join lessons l on l.id = g.lesson_id
+         left join users u on u.id = l.created_by
+        group by g.lesson_id, g.model`,
+    );
+    const out = new Map<string, LessonUsage>();
+    for (const r of rows) {
+      const input: Record<string, number> = {};
+      const output: Record<string, number> = {};
+      for (const d of r.inputs as Record<string, number>[]) add(input, d);
+      for (const d of r.outputs as Record<string, number>[]) add(output, d);
+      const cost = this.cost(r.model, input, output, Number(r.thoughts), Number(r.output), Number(r.calls));
+      const id = r.lesson_id ?? '';
+      const e = out.get(id) ?? {
+        lessonId: r.lesson_id,
+        title: r.title,
+        code: r.code,
+        creatorId: r.creator_id,
+        creatorName: r.creator,
+        calls: 0,
+        totalTokens: 0,
+        costUsd: 0 as number | null,
+        lastAt: r.last_at.toISOString(),
+      };
+      e.calls += r.calls;
+      e.totalTokens += Number(r.total);
+      e.costUsd = e.costUsd === null || cost === null ? null : e.costUsd + cost;
+      if (r.last_at.toISOString() > e.lastAt) e.lastAt = r.last_at.toISOString();
+      out.set(id, e);
+    }
+    return [...out.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
   }
 
   /** Tổng token theo từng bài (cho danh sách) */

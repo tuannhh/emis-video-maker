@@ -72,6 +72,28 @@ create table if not exists gemini_usage (
   created_at timestamptz not null default now()
 );
 create index if not exists gemini_usage_lesson_idx on gemini_usage (lesson_id);
+
+-- Tài khoản. session_version tăng khi đổi mật khẩu / khoá tài khoản để đăng xuất mọi phiên cũ.
+create table if not exists users (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  name text not null,
+  role text not null default 'member',
+  password_hash text not null,
+  active boolean not null default true,
+  session_version int not null default 1,
+  last_login_at timestamptz,
+  created_at timestamptz not null default now()
+);
+alter table lessons add column if not exists created_by uuid references users(id) on delete set null;
+
+-- Cấu hình hệ thống (giá trị nhạy cảm được mã hoá trước khi lưu)
+create table if not exists settings (
+  key text primary key,
+  value jsonb not null,
+  updated_by uuid references users(id) on delete set null,
+  updated_at timestamptz not null default now()
+);
 `;
 
 @Injectable()
@@ -79,8 +101,20 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DbService.name);
   readonly pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10 });
 
+  private migration: Promise<void> | null = null;
+
   async onModuleInit() {
-    // Hai tiến trình (api, worker) có thể cùng khởi động: khoá để migrate một lần
+    await this.migrated();
+  }
+
+  /** Chờ migrate xong (dịch vụ khác có thể gọi trong onModuleInit của mình, chạy song song với hàm trên) */
+  migrated() {
+    this.migration ??= this.migrate();
+    return this.migration;
+  }
+
+  private async migrate() {
+    // Nhiều tiến trình (api, worker, job) có thể cùng khởi động: khoá để migrate một lần
     const client = await this.pool.connect();
     try {
       await client.query('select pg_advisory_lock(7342001)');
