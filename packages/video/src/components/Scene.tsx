@@ -4,6 +4,7 @@ import { TRANSITION_FRAMES, type RenderCharacter, type RenderScene, type RenderS
 import { activeShotIndex, rigState, type ActingContext } from '../acting';
 import {
   applyMotion,
+  bodyRect,
   boxToFrame,
   cameraTransform,
   coverLayout,
@@ -11,12 +12,18 @@ import {
   hashOf,
   lerpCamera,
   moveDuration,
+  overlapArea,
   placeCharacter,
+  placeRect,
+  rectAt,
+  toScreenRect,
   type CameraState,
   type Placed,
+  type Rect,
 } from '../geometry';
 import { CharacterRig } from './CharacterRig';
-import { Overlay } from './Overlay';
+import { Illustration, illustrationSize } from './Illustration';
+import { Overlay, badgeScale, badgeSize } from './Overlay';
 import { Subtitle } from './Subtitle';
 
 interface Props {
@@ -39,7 +46,7 @@ export const Scene: React.FC<Props> = ({ scene, characters, burnSubtitles }) => 
 
   const placed = useMemo(() => {
     const m = new Map<string, Placed>();
-    for (const c of scene.characters) if (characters[c.id]) m.set(c.id, placeCharacter(c, layout));
+    for (const c of scene.characters) if (characters[c.id]) m.set(c.id, placeCharacter(c, layout, characters[c.id]));
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, characters, W, H]);
@@ -96,6 +103,57 @@ export const Scene: React.FC<Props> = ({ scene, characters, burnSubtitles }) => 
     }
   }
   const { s, tx, ty } = cameraTransform(cam, W, H);
+
+  // Bố cục chữ/hình của từng shot (theo camera giữa shot): nằm trọn trong khung, không đè lên nhân vật
+  const stages = useMemo(
+    () =>
+      scene.shots.map((sh, i) => {
+        const t = cameraTransform(motionAt(i, 0.5), W, H);
+        const avoid: Rect[] = [];
+        for (const p of placed.values()) avoid.push(toScreenRect(bodyRect(p, characters[p.id]), t));
+        const bounds: Rect = { x1: 24, y1: 24, x2: W - 24, y2: H - (burnSubtitles ? 200 : 32) };
+        const taken = [...avoid];
+
+        let badgeAt = { x: W / 2, y: H * 0.2 };
+        let ring = false;
+        if (sh.overlay && sh.overlay.boxes.length) {
+          const rs = sh.overlay.boxes.map((b) => toScreenRect(boxToFrame(b, layout), t));
+          const u: Rect = {
+            x1: Math.min(...rs.map((r) => r.x1)),
+            y1: Math.min(...rs.map((r) => r.y1)),
+            x2: Math.max(...rs.map((r) => r.x2)),
+            y2: Math.max(...rs.map((r) => r.y2)),
+          };
+          const area = Math.max(1, (u.x2 - u.x1) * (u.y2 - u.y1));
+          const visible = overlapArea(u, { x1: 0, y1: 0, x2: W, y2: H }) / area;
+          const cx = (u.x1 + u.x2) / 2;
+          const cy = (u.y1 + u.y2) / 2;
+          const covered = avoid.some((a) => cx > a.x1 && cx < a.x2 && cy > a.y1 && cy < a.y2);
+          ring = sh.overlay.kind === 'label' && visible >= 0.6 && !covered;
+          const size = badgeSize(sh.overlay.text, true, badgeScale(t.s));
+          // Ưu tiên ngay phía trên vật; vật ra ngoài khung thì lấy chỗ gần vật nhất trong khung
+          const prefer = { x: cx, y: u.y1 - size.h / 2 - 16 };
+          // Số đếm từng vật cũng là vùng cần tránh của thẻ tổng
+          const avoidBadge = sh.overlay.kind === 'count' ? [...avoid, ...rs] : [...avoid, u];
+          badgeAt = placeRect(size.w, size.h, prefer, avoidBadge, bounds);
+          taken.push(rectAt(badgeAt.x, badgeAt.y, size.w, size.h), u);
+        }
+
+        let illAt = { x: W / 2, y: H / 2 };
+        if (sh.illustration) {
+          const size = illustrationSize(sh.illustration);
+          const sp = placed.get(sh.speaker);
+          const spX = sp ? t.tx + t.s * sp.x : W / 2;
+          // Hình hiện ở phía đối diện người nói (chỗ trống trong khung), cao ngang ngực
+          const prefer = { x: spX > W / 2 ? W * 0.27 : W * 0.73, y: H * 0.38 };
+          illAt = placeRect(size.w, size.h, prefer, taken, bounds);
+        }
+        return { avoid, badgeAt, ring, illAt };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scene, placed, characters, W, H, burnSubtitles],
+  );
+  const stage = stages[idx];
 
   const ctxAt = (id: string, f: number): ActingContext => {
     const i = activeShotIndex(scene.shots, f);
@@ -163,7 +221,21 @@ export const Scene: React.FC<Props> = ({ scene, characters, burnSubtitles }) => 
       </div>
 
       {shot.overlay ? (
-        <Overlay overlay={shot.overlay} layout={layout} s={s} tx={tx} ty={ty} local={local} />
+        <Overlay
+          overlay={shot.overlay}
+          layout={layout}
+          s={s}
+          tx={tx}
+          ty={ty}
+          local={local}
+          avoid={stage.avoid}
+          badgeAt={stage.badgeAt}
+          ring={stage.ring}
+        />
+      ) : null}
+
+      {shot.illustration ? (
+        <Illustration ill={shot.illustration} at={stage.illAt} local={local} duration={shot.durationInFrames} />
       ) : null}
 
       {showSubtitle ? <Subtitle text={shot.text} speaker={speakerName} localFrame={audioLocal} /> : null}

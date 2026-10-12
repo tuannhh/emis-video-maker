@@ -209,16 +209,31 @@ function ScriptReview({ lesson, script, onDone }: { lesson: LessonView; script: 
     }
   };
 
+  /** Bỏ câu để trống (vừa chèn mà chưa viết); cách đọc trống thì đọc đúng như câu hiển thị */
+  const cleaned = (): LessonScript => {
+    const sections = draft.sections
+      .map((s) => ({
+        ...s,
+        lines: s.lines
+          .filter((l) => l.text.trim())
+          .map((l) => ({ ...l, ttsText: l.ttsText.trim() ? l.ttsText : l.text })),
+      }))
+      .filter((s) => s.lines.length);
+    const next = { ...draft, sections };
+    setDraft(next);
+    return next;
+  };
+
   const save = () =>
     run('save', async () => {
-      await api.saveScript(lesson.id, draft);
+      await api.saveScript(lesson.id, cleaned());
       setDirty(false);
       setMsg({ tone: 'ok', text: 'Đã lưu thay đổi' });
     });
 
   const approve = async () => {
     const ok = await run('approve', async () => {
-      if (dirty) await api.saveScript(lesson.id, draft);
+      if (dirty) await api.saveScript(lesson.id, cleaned());
       await api.approveScript(lesson.id);
     });
     if (ok) onDone();

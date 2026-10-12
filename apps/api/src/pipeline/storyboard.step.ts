@@ -18,6 +18,8 @@ import { styleTag } from './script.step.js';
 const POSITIONS = ['left', 'right', 'center'] as const;
 type Position = (typeof POSITIONS)[number];
 const MAX_CLOSEUPS = 2;
+/** Số hình minh hoạ khác nhau tối đa mỗi bài (mỗi hình mới tốn 1 lần vẽ) */
+export const MAX_ILLUSTRATIONS = 8;
 const TIGHT = new Set(['medium', 'close-up']);
 
 @Injectable()
@@ -92,6 +94,7 @@ export function sanitizeStoryboard(board: Storyboard, script: LessonScript, libr
 
   const positionOf = new Map<string, Position>(); // chỗ đứng quen thuộc của từng nhân vật
   let closeups = 0;
+  const illustrationKeys = new Set<string>();
 
   const scenes: StoryboardScene[] = script.sections.map((section, si) => {
     const proposed = board.scenes.find((s) => s.sectionIndex === si);
@@ -136,7 +139,30 @@ export function sanitizeStoryboard(board: Storyboard, script: LessonScript, libr
         reaction: s?.reaction ?? 'none',
         overlay: s?.overlay,
         sfx: s?.sfx,
+        illustration: s?.illustration,
       };
+      // Hình minh hoạ: giới hạn số hình khác nhau; cue phải có trong câu (không có thì hiện ngay đầu câu)
+      if (shot.illustration) {
+        const ill = shot.illustration;
+        const key = ill.key.toLowerCase();
+        if (!illustrationKeys.has(key) && illustrationKeys.size >= MAX_ILLUSTRATIONS) shot.illustration = undefined;
+        else {
+          illustrationKeys.add(key);
+          const cue = line.text.toLowerCase().includes(ill.cue.toLowerCase()) ? ill.cue : '';
+          // Nhân hình chỉ khi chú thích có dạng "<N> <vật>" ("6 bút chì"); hình chữ số ("Số 8") luôn là một hình.
+          // AI cho count mà chú thích thiếu số thì thêm số vào chú thích để người xem thấy tổng.
+          let caption = ill.caption.trim();
+          const numeral = /^(number|digit|numeral)/.test(key) || /^(chữ\s+)?số\s/iu.test(caption);
+          const lead = caption.match(/^(10|[1-9])\s+\p{L}/u);
+          let count = lead ? Number(lead[1]) : 1;
+          if (!lead && ill.count && ill.count > 1 && !numeral) {
+            count = Math.min(10, Math.round(ill.count));
+            caption = `${count} ${caption.charAt(0).toLowerCase()}${caption.slice(1)}`;
+          }
+          if (numeral) count = 1;
+          shot.illustration = { ...ill, key, cue, caption: caption.slice(0, 24), count };
+        }
+      }
       const visible = present.has(line.speaker);
       if (shot.framing === 'object' && !shot.target) shot.framing = visible ? 'medium' : 'wide';
       if (!visible && shot.framing !== 'object') shot.framing = 'wide';

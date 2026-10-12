@@ -42,6 +42,7 @@ export default function LibraryPage() {
 
   const characters = assets?.filter((a) => a.kind === 'character') ?? [];
   const backgrounds = assets?.filter((a) => a.kind === 'background') ?? [];
+  const illustrations = assets?.filter((a) => a.kind === 'illustration') ?? [];
   const voiceLabel = (id?: string) => VOICES.find((v) => v.id === id)?.tone ?? id;
 
   return (
@@ -152,6 +153,41 @@ export default function LibraryPage() {
                   ) : null}
                   <p className="muted" style={{ margin: '6px 0' }} title={a.description}>
                     {a.description.length > 140 ? `${a.description.slice(0, 140)}…` : a.description}
+                  </p>
+                  {isAdmin ? (
+                    <button className="btn btn-danger btn-sm" onClick={() => remove(a)}>
+                      Xoá để vẽ lại
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <h2>Hình minh hoạ ({illustrations.length})</h2>
+        </div>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Hình bật ra khi lời thoại nhắc tới một sự vật (ví dụ: “bánh xe”). Vẽ một lần, các bài sau dùng lại.
+        </p>
+        {illustrations.length === 0 ? (
+          <p className="muted">Chưa có hình minh hoạ nào.</p>
+        ) : (
+          <div className="asset-grid">
+            {illustrations.map((a) => (
+              <div key={a.id} className="asset">
+                <div className="asset-img">
+                  <img src={a.urls.image} alt={a.name} loading="lazy" />
+                </div>
+                <div className="asset-body">
+                  <strong>
+                    <code>{a.key}</code>
+                  </strong>
+                  <p className="muted" style={{ margin: '6px 0' }} title={a.description}>
+                    {a.description.length > 100 ? `${a.description.slice(0, 100)}…` : a.description}
                   </p>
                   {isAdmin ? (
                     <button className="btn btn-danger btn-sm" onClick={() => remove(a)}>

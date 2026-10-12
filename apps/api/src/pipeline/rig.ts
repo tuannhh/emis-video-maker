@@ -29,6 +29,8 @@ export interface ComposedRig {
   mouth: Buffer;
   blink: Buffer;
   head: RigBox;
+  /** Vùng miệng (để căn khung trung/cận cảnh không cắt mất miệng) */
+  mouthBox: RigBox;
   /** Phần trăm diện tích ảnh được thay ở từng dáng (để kiểm tra dáng có thật sự khác không) */
   coverage: Record<string, number>;
 }
@@ -178,13 +180,32 @@ const union = (a: RigBox, b: RigBox): RigBox => ({
 /** Tìm đầu nhân vật: dựa vào vị trí miệng (idle ↔ idleOpen) và mắt (idle ↔ blink) */
 function findHead(idle: RigImage, open: RigImage, blink: RigImage) {
   const { width: w, height: h } = idle;
+  // Chỉ xét phía trong hình bóng: nhân vật trong suốt/phát sáng (mascot giọt nước, kính...) bị vẽ lại viền khác nhau
+  // giữa các lần sửa ảnh, vùng viền đổi còn lớn hơn cả cái miệng nên trước đây bị nhận nhầm là miệng.
+  const inside = erode(opaque(idle), w, h, Math.max(4, Math.round(w * 0.012)));
+  // Mascot đầu to thân nhỏ có miệng nằm quá nửa khung, nên xét tới 70% chiều cao rồi chọn theo vị trí mắt
   const upper = (m: Uint8Array) => {
-    for (let i = Math.floor(h * 0.45) * w; i < m.length; i++) m[i] = 0;
+    for (let i = 0; i < m.length; i++) if (!inside[i] || i >= Math.floor(h * 0.7) * w) m[i] = 0;
     return m;
   };
-  const mouthC = components(upper(solidChanges(idle, open, 40, 1)), w, h);
-  const eyeC = components(upper(solidChanges(idle, blink, 40, 1)), w, h);
-  const mouth = mouthC[0];
+  // Miệng, mắt là mảng gọn, không phải dải dài theo chiều dọc như viền đầu
+  const compact = (c: Component) => c.box.y2 - c.box.y1 <= (c.box.x2 - c.box.x1 + 1) * 1.6;
+  const pick = (all: Component[]) => (all.some(compact) ? all.filter(compact) : all);
+  const mouthC = pick(components(upper(solidChanges(idle, open, 40, 1)), w, h));
+  const eyeC = pick(components(upper(solidChanges(idle, blink, 40, 1)), w, h));
+  // Miệng = mảng thay đổi lớn nhất nằm dưới và giữa hai mắt (mắt lấy từ ảnh chớp mắt)
+  let mouth = mouthC[0];
+  if (eyeC.length) {
+    const pair = eyeC.slice(0, 2).reduce((b, c) => union(b, c.box), eyeC[0].box);
+    const span = Math.max(pair.x2 - pair.x1, (pair.y2 - pair.y1) * 2);
+    const midY = (pair.y1 + pair.y2) / 2;
+    mouth =
+      mouthC.find((c) => {
+        const cx = (c.box.x1 + c.box.x2) / 2;
+        const cy = (c.box.y1 + c.box.y2) / 2;
+        return cy > midY && cx >= pair.x1 - span * 0.4 && cx <= pair.x2 + span * 0.4 && c.box.y1 <= pair.y2 + span * 1.2;
+      }) ?? mouth;
+  }
   if (!mouth) throw new Error('Không tìm thấy miệng trên ảnh nhân vật');
   // Mắt: các mảnh lớn nằm trên miệng
   const eyes = eyeC.filter((c) => c.box.y2 <= mouth.box.y2 && c.area >= mouth.area * 0.08).slice(0, 2);
@@ -320,6 +341,7 @@ export async function composeRig(images: Record<string, Buffer>, poseKeys: strin
     mouth: await facePatch(open, found.mouth),
     blink: await facePatch(blink, found.eyes),
     head,
+    mouthBox: found.mouth.length ? found.mouth.map((c) => c.box).reduce(union) : head,
     coverage,
   };
 }

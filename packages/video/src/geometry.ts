@@ -1,4 +1,4 @@
-import type { Box, Framing, RenderSceneCharacter } from '@edu/shared';
+import type { Box, Framing, RenderCharacter, RenderSceneCharacter } from '@edu/shared';
 
 export interface CoverLayout {
   left: number;
@@ -40,14 +40,22 @@ export interface Placed {
   feet: number;
   bodyH: number;
   head: number;
+  /** Toạ độ y của miệng; null nếu không rõ */
+  mouth: number | null;
 }
 
-export function placeCharacter(c: RenderSceneCharacter, layout: CoverLayout): Placed {
+export function placeCharacter(c: RenderSceneCharacter, layout: CoverLayout, ch?: RenderCharacter): Placed {
   const x = layout.left + c.x * layout.width;
   const feet = layout.top + c.feetY * layout.height;
   const bodyH = c.bodyHeight * layout.height;
-  return { id: c.id, x, feet, bodyH, head: feet - bodyH };
+  // Cùng phép đặt ảnh như CharacterRig: khung ảnh cao hơn thân một đoạn headTop
+  const spriteH = ch ? bodyH / Math.max(0.3, 1 - ch.headTop) : 0;
+  const mouth = ch?.mouthY != null ? feet - spriteH + ch.mouthY * spriteH : null;
+  return { id: c.id, x, feet, bodyH, head: feet - bodyH, mouth };
 }
+
+/** Miệng người nói phải nằm trên tỉ lệ này của khung (phía dưới là phụ đề) */
+const MOUTH_LIMIT = 0.66;
 
 export interface CameraState {
   scale: number;
@@ -103,8 +111,9 @@ export function framingCamera(input: FramingInput, W: number, H: number): Camera
 
   if (framing === 'medium' || framing === 'close-up') {
     const close = framing === 'close-up';
-    const h = s.bodyH * (close ? 0.44 : 0.72);
     const top = s.head - s.bodyH * (close ? 0.07 : 0.09);
+    // Mascot mặt thấp trên thân: nới khung cho miệng nằm trên vùng phụ đề, không bị cắt
+    const h = Math.max(s.bodyH * (close ? 0.44 : 0.72), s.mouth != null ? (s.mouth - top) / MOUTH_LIMIT : 0);
     const w = (h * W) / H;
     const cx = s.x + d * w * (close ? 0.1 : 0.14);
     return rectCamera({ x1: cx - w / 2, y1: top, x2: cx + w / 2, y2: top + h }, W, H);
@@ -121,7 +130,8 @@ export function framingCamera(input: FramingInput, W: number, H: number): Camera
     const x1 = Math.min(s.x, other.x) - bodyH * 0.32;
     const x2 = Math.max(s.x, other.x) + bodyH * 0.32;
     const y1 = Math.min(s.head, other.head) - bodyH * 0.1;
-    const y2 = Math.min(s.head, other.head) + bodyH * 0.85;
+    const mouths = [s.mouth, other.mouth].filter((m): m is number => m != null);
+    const y2 = Math.max(Math.min(s.head, other.head) + bodyH * 0.85, ...mouths.map((m) => y1 + (m - y1) / MOUTH_LIMIT));
     return rectCamera({ x1, y1, x2, y2 }, W, H);
   }
   return wide;
@@ -177,4 +187,59 @@ export function hashOf(text: string) {
   let h = 2166136261;
   for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
   return (h >>> 0) / 4294967295;
+}
+
+/** Thân nhân vật trong toạ độ khung hình (trước khi zoom): khung ảnh chừa chỗ giơ tay nên chỉ lấy phần giữa */
+export function bodyRect(p: Placed, ch: { width: number; height: number; headTop: number }): Rect {
+  const spriteH = p.bodyH / Math.max(0.3, 1 - ch.headTop);
+  const half = (ch.width / ch.height) * spriteH * 0.36;
+  return { x1: p.x - half, y1: p.head - p.bodyH * 0.03, x2: p.x + half, y2: p.feet };
+}
+
+export function toScreenRect(r: Rect, t: { s: number; tx: number; ty: number }): Rect {
+  return { x1: t.tx + t.s * r.x1, y1: t.ty + t.s * r.y1, x2: t.tx + t.s * r.x2, y2: t.ty + t.s * r.y2 };
+}
+
+export function overlapArea(a: Rect, b: Rect) {
+  return Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1)) * Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+}
+
+export const rectAt = (cx: number, cy: number, w: number, h: number): Rect => ({
+  x1: cx - w / 2,
+  y1: cy - h / 2,
+  x2: cx + w / 2,
+  y2: cy + h / 2,
+});
+
+/**
+ * Chọn tâm cho một khối chữ/hình (w × h): gần vị trí mong muốn nhất mà nằm trọn trong `bounds` và không đè lên
+ * vùng cần tránh (nhân vật, nhãn khác). Không có chỗ trống hoàn toàn thì lấy chỗ đè ít nhất.
+ */
+export function placeRect(w: number, h: number, prefer: { x: number; y: number }, avoid: Rect[], bounds: Rect) {
+  const fit = (x: number, y: number) => ({
+    x: clamp(x, bounds.x1 + w / 2, Math.max(bounds.x1 + w / 2, bounds.x2 - w / 2)),
+    y: clamp(y, bounds.y1 + h / 2, Math.max(bounds.y1 + h / 2, bounds.y2 - h / 2)),
+  });
+  const cost = (c: { x: number; y: number }) => {
+    const r = rectAt(c.x, c.y, w + 24, h + 24);
+    return avoid.reduce((sum, a) => sum + overlapArea(r, a), 0);
+  };
+  let best = fit(prefer.x, prefer.y);
+  let bestCost = cost(best);
+  if (bestCost === 0) return best;
+  const step = Math.max(40, Math.min(w, h) / 3);
+  for (let ring = 1; ring <= 24; ring++) {
+    const n = 8 + ring * 4;
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 - Math.PI / 2; // bắt đầu từ phía trên
+      const c = fit(prefer.x + Math.cos(a) * ring * step, prefer.y + Math.sin(a) * ring * step);
+      const v = cost(c);
+      if (v < bestCost) {
+        best = c;
+        bestCost = v;
+        if (v === 0) return best;
+      }
+    }
+  }
+  return best;
 }

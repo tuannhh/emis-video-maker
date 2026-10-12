@@ -171,10 +171,16 @@ Tài sản dùng lại từ thư viện và câu thoại đã có trong cache kh
   gốc nên vẫn là cùng một căn phòng, chuyển cảnh bằng hoà tan. Model sửa ảnh hay chỉ xếp lại đồ vật thay vì thêm, nên mỗi vòng vẽ
   2 bản song song, AI đếm lại từng bản, tối đa 3 vòng; vẫn sai thì ghi cảnh báo vào lịch sử bài học và đánh dấu nền trong thư viện
   để lần sau vẽ lại (AI kiểm tra video cuối cũng bắt lỗi này).
-- **Nhân vật (rig 3)**: vẽ góc 3/4 trên nền magenta, AI sửa ảnh ra 5 dáng tay (nói, giải thích, ý tưởng, chỉ, reo) + miệng mở
+- **Nhân vật (rig 5)**: vẽ góc 3/4 trên nền magenta, AI sửa ảnh ra 5 dáng tay (nói, giải thích, ý tưởng, chỉ, reo) + miệng mở
   + mắt nhắm, tách nền và cắt chung một khung. Mỗi lần sửa ảnh là một bản vẽ lại nên nét viền, tóc, mắt lệch nhau vài pixel —
   đổi nguyên ảnh theo từng âm tiết sẽ làm nhân vật rung. Vì vậy `apps/api/src/pipeline/rig.ts` lấy ảnh đứng làm nền cố định:
   chỉ vùng tay thật sự thay đổi được dán lên (bỏ nét lệch mảnh, giữ nguyên từng pixel của đầu), còn miệng mở và mắt nhắm
   được tách thành miếng dán nhỏ chồng lên mặt. Nhân vật cũ được nâng cấp tự động, dùng lại ảnh đã vẽ, chỉ vẽ thêm dáng còn thiếu. Nhân vật và bối cảnh lưu thư viện, bài sau dùng lại cho nhất quán;
-  xoá trong trang Thư viện để AI vẽ lại.
+  xoá trong trang Thư viện để AI vẽ lại. Miệng/mắt được tìm theo vị trí đôi mắt bên trong thân (đúng cả với mascot trong suốt,
+  mặt thấp); vị trí miệng được lưu để camera trung/cận cảnh luôn giữ miệng trên vùng phụ đề.
+- **Hình minh hoạ**: khi lời thoại nhắc tới sự vật không có trong nền ("tròn như bánh xe"), AI vẽ MỘT hình sự vật (lưu thư viện,
+  dùng lại) và hình bật ra cạnh nhân vật đúng lúc nói tới. Câu đếm ("một, hai... sáu cây bút chì") thì video tự nhân hình thành
+  đúng số lượng, từng cái hiện theo nhịp đếm — không để AI vẽ cả nhóm vì model ảnh hay vẽ sai số lượng. Tối đa 8 hình mỗi bài.
+- **Bố cục chữ**: nhãn, số đếm và hình minh hoạ được xếp vào chỗ trống trong khung (không đè lên nhân vật, không tràn mép,
+  không chạm phụ đề); khi dàn dựng, nhân vật đứng che vật cần đếm sẽ được dời sang bên.
 - **Model** đổi được qua biến môi trường `GEMINI_TEXT_MODEL`, `GEMINI_TTS_MODEL`, `GEMINI_IMAGE_MODEL`, `GEMINI_MUSIC_MODEL`.

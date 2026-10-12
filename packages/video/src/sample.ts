@@ -46,6 +46,7 @@ export const sampleProps: LessonRenderProps = {
           reaction: 'none',
           listener: null,
           overlay: { kind: 'label', text: '0', boxes: [[0.4, 0.4, 0.6, 0.6]], startFrames: [20] },
+          illustration: null,
         },
       ],
     },

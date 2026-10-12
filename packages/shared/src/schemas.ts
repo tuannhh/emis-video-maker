@@ -157,8 +157,25 @@ export const ShotSchema = z.object({
     .enum(SFX_IDS)
     .optional()
     .describe('Hiệu ứng âm thanh khi bắt đầu câu; chỉ dùng khi thật sự hợp (trả lời đúng → ding, kết luận → tada)'),
+  illustration: z
+    .object({
+      key: slug.describe('Key slug tiếng Anh của hình, ví dụ "bicycle-wheel"; cùng sự vật thì dùng lại cùng key'),
+      description: z.string().describe('Mô tả tiếng Anh để vẽ MỘT sự vật đơn lẻ, ví dụ "a round black bicycle wheel with spokes"'),
+      caption: z.string().max(24).describe('Chú thích tiếng Việt ngắn hiện dưới hình, ví dụ "Bánh xe"'),
+      cue: z.string().describe('Cụm từ NGUYÊN VĂN trong câu thoại, lúc đọc tới đó thì hình hiện ra, ví dụ "bánh xe"'),
+      count: z
+        .number()
+        .int()
+        .min(1)
+        .max(10)
+        .optional()
+        .describe('Số lượng khi câu thoại đếm/nói "có N vật": hình vẫn vẽ MỘT vật, video tự nhân đúng N cái và hiện theo nhịp đếm'),
+    })
+    .optional()
+    .describe('Hình minh hoạ bật ra cạnh nhân vật khi câu thoại nhắc tới một sự vật/hình ảnh so sánh mà bối cảnh không có'),
 });
 export type Shot = z.infer<typeof ShotSchema>;
+export type ShotIllustration = NonNullable<Shot['illustration']>;
 
 export const StoryboardSceneSchema = z.object({
   sectionIndex: z.number().int().min(0),
@@ -189,7 +206,7 @@ export const StoryboardSchema = z.object({
 });
 /** `v` do hệ thống gắn sau khi kiểm tra; storyboard kiểu cũ (không có v) sẽ được dàn dựng lại. */
 export type Storyboard = z.infer<typeof StoryboardSchema> & { v?: number };
-export const STORYBOARD_VERSION = 2;
+export const STORYBOARD_VERSION = 3;
 
 // ---------------------------------------------------------------------------
 // AI tự kiểm tra thành phẩm
@@ -273,7 +290,7 @@ export interface LessonEvent {
   createdAt: string;
 }
 
-export type AssetKind = 'character' | 'background' | 'music' | 'sfx';
+export type AssetKind = 'character' | 'background' | 'illustration' | 'music' | 'sfx';
 
 export interface Asset {
   id: string;
@@ -284,7 +301,7 @@ export interface Asset {
   /**
    * Giá trị là storage key.
    * character: { source, idle, idleOpen, blink, talk, talkOpen, point, pointOpen, cheer, cheerOpen }
-   * background: { image }; music/sfx: { audio }
+   * background, illustration: { image }; music/sfx: { audio }
    */
   files: Record<string, string>;
   meta: {
@@ -306,6 +323,8 @@ export interface Asset {
     headTop?: number;
     /** character: tâm ngang của thân ở dáng đứng yên, tỉ lệ theo chiều rộng khung */
     bodyCx?: number;
+    /** Tâm miệng theo tỉ lệ chiều cao khung (rig ≥ 5) */
+    mouthY?: number;
     /** background: box theo định dạng [ymin, xmin, ymax, xmax] chuẩn hóa 0..1 */
     boxes?: Record<string, [number, number, number, number]>;
     /** background: box của từng vật khi đếm (ví dụ từng quả cam) */

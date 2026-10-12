@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import sharp from 'sharp';
 import { z } from 'zod';
-import type { Asset, Box, LessonScript, ScriptCharacter, Storyboard, StoryboardBackground } from '@edu/shared';
+import type { Asset, Box, LessonScript, ScriptCharacter, ShotIllustration, Storyboard, StoryboardBackground } from '@edu/shared';
 import { AssetsRepo } from '../core/assets.repo.js';
 import { GeminiService } from '../core/gemini.service.js';
 import { StorageService } from '../core/storage.service.js';
@@ -14,6 +14,7 @@ import {
   backgroundPrompt,
   backgroundVariantPrompt,
   characterPrompt,
+  illustrationPrompt,
   locateInstancesPrompt,
   locatePrompt,
   verifyBackgroundPrompt,
@@ -25,8 +26,13 @@ const LocateSchema = z.object({ objects: z.array(z.object({ label: z.string(), b
 const InstancesSchema = z.object({ items: z.array(z.object({ box_2d: BoxSchema })) });
 const VerifySchema = z.object({ matches: z.boolean(), problems: z.array(z.string()) });
 
-/** Phiên bản bộ dáng nhân vật; nhân vật cũ trong thư viện được vẽ lại (giữ nguyên thiết kế) khi khác */
-export const RIG_VERSION = 3;
+/**
+ * Phiên bản bộ dáng nhân vật; nhân vật cũ trong thư viện được nâng cấp khi khác.
+ * 4: tìm miệng/mắt theo vị trí mắt, bỏ viền đổi màu (mascot trong suốt) và mảnh tay rời — chỉ ghép lại từ ảnh gốc đã lưu,
+ *    không vẽ thêm.
+ * 5: lưu vị trí miệng (mouthY) để camera trung/cận cảnh luôn thấy miệng nhép.
+ */
+export const RIG_VERSION = 5;
 /** Dáng tay vẽ bằng cách sửa ảnh đứng; ghép lên ảnh đứng nên đầu/thân giữ nguyên */
 const GESTURES = ['talk', 'explain', 'idea', 'point', 'cheer'] as const;
 /** Ảnh gốc cần cho một bộ dáng (cùng khung cắt) */
@@ -43,6 +49,8 @@ export interface StyleRef {
 export interface ProducedAssets {
   characters: Record<string, Asset>;
   backgrounds: Record<string, Asset>;
+  /** Hình minh hoạ theo key trong storyboard (hình vẽ lỗi thì không có, video vẫn dựng bình thường) */
+  illustrations: Record<string, Asset>;
   /** Vấn đề AI kiểm tra vẫn thấy sau mọi lần vẽ, báo cho người duyệt */
   warnings: string[];
 }
@@ -64,7 +72,10 @@ export class AssetsStep {
 
   async run(script: LessonScript, board: Storyboard, progress: Progress, style: StyleRef | null = null): Promise<ProducedAssets> {
     const visual = script.characters.filter((c) => c.role !== 'narrator');
-    const total = visual.length + board.backgrounds.length;
+    const illSpecs = new Map<string, ShotIllustration>();
+    for (const scene of board.scenes)
+      for (const shot of scene.shots) if (shot.illustration && !illSpecs.has(shot.illustration.key)) illSpecs.set(shot.illustration.key, shot.illustration);
+    const total = visual.length + board.backgrounds.length + illSpecs.size;
     let done = 0;
     const tick = async (msg: string) => {
       done++;
@@ -84,6 +95,7 @@ export class AssetsStep {
 
     const characters: Record<string, Asset> = {};
     const backgrounds: Record<string, Asset> = {};
+    const illustrations: Record<string, Asset> = {};
     const warnings: string[] = [];
     const specs = new Map(board.backgrounds.map((b) => [b.key, b]));
     // Nền gốc vẽ trước, nền biến thể sửa từ nền gốc sau
@@ -107,8 +119,44 @@ export class AssetsStep {
           await tick(`Bối cảnh ${b.key} đã sẵn sàng`);
         });
       })(),
+      mapLimit([...illSpecs.values()], 2, async (spec) => {
+        const asset = await this.illustration(spec, style, warnings);
+        if (asset) illustrations[spec.key] = asset;
+        await tick(`Hình minh hoạ "${spec.caption}" đã sẵn sàng`);
+      }),
     ]);
-    return { characters, backgrounds, warnings };
+    return { characters, backgrounds, illustrations, warnings };
+  }
+
+  /** Hình minh hoạ một sự vật (tách nền), lưu thư viện để bài sau dùng lại */
+  private async illustration(spec: ShotIllustration, style: StyleRef | null, warnings: string[]): Promise<Asset | null> {
+    // Vẽ theo ảnh phong cách thì lưu riêng, không dùng bản phong cách mặc định
+    const key = style ? `${spec.key}-${style.tag}` : spec.key;
+    const lib = await this.repo.get('illustration', key);
+    if (lib) return lib;
+    try {
+      this.logger.log(`Vẽ hình minh hoạ: ${key}`);
+      const drawn = await this.gemini.image(`Vẽ hình minh hoạ ${spec.caption}`, illustrationPrompt(spec.description, !!style), {
+        aspectRatio: '1:1',
+        imageSize: '1K',
+        images: style ? [style.image] : undefined,
+      });
+      const cut = await cutoutVariants([await sharp(drawn).png().toBuffer()], 900);
+      const image = await this.storage.put(`illustrations/${key}/${Date.now()}/image.png`, cut.images[0]);
+      return await this.repo.upsert({
+        kind: 'illustration',
+        key,
+        name: spec.caption,
+        description: spec.description,
+        files: { image },
+        meta: { width: cut.width, height: cut.height, style: style?.tag },
+      });
+    } catch (err) {
+      // Thiếu một hình minh hoạ không làm hỏng cả video
+      this.logger.warn(`Không vẽ được hình minh hoạ ${key}: ${(err as Error).message}`);
+      warnings.push(`Không vẽ được hình minh hoạ "${spec.caption}", video sẽ không có hình này`);
+      return null;
+    }
   }
 
   /** Nền gốc của một biến thể không nằm trong storyboard: lấy trong thư viện */
@@ -147,8 +195,8 @@ export class AssetsStep {
 
     // Dùng lại ảnh gốc đã vẽ của bộ dáng cũ (cùng thiết kế), chỉ vẽ thêm phần còn thiếu
     const sources: Partial<Record<RigSource, Buffer>> = {};
-    if (existing?.meta.rig === 2) {
-      // Bộ dáng 2 lưu ảnh gốc cạnh ảnh đã tách nền (source-<dáng>.png) nhưng không ghi vào files
+    if (existing && (existing.meta.rig ?? 0) >= 2) {
+      // Bộ dáng 2+ lưu ảnh gốc cạnh ảnh đã tách nền (source-<dáng>.png; bộ 2 không ghi vào files)
       const dir = (existing.files.idle ?? existing.files.source ?? '').replace(/\/[^/]*$/, '');
       for (const k of RIG_SOURCES) {
         const key = existing.files[`source-${k}`] ?? (dir ? `${dir}/source-${k}.png` : undefined);
@@ -218,6 +266,7 @@ export class AssetsStep {
         rig: RIG_VERSION,
         headTop: cut.tops[0],
         bodyCx: cut.centersX[0],
+        mouthY: (rig.mouthBox.y1 + rig.mouthBox.y2) / 2 / cut.height,
         facing: existing?.meta.facing,
         origin: existing?.meta.origin,
         style: existing ? existing.meta.style : style?.tag,

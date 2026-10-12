@@ -150,7 +150,18 @@ Ngôn ngữ hình ảnh — dựng như phim hoạt hình chuyên nghiệp, KHÔ
 - action: cheer cho câu reo mừng/khen ngợi; point khi câu nhắc tới một vật (bắt buộc có target); còn lại talk.
 - reaction của người nghe: nod khi đồng ý/lắng nghe lời giải thích, hop khi vui mừng/ngạc nhiên; phần lớn là none.
 - overlay: count khi nhân vật đếm từng vật (target là tên MỘT vật, ví dụ "orange"; text là tổng số); label để gắn số/chữ lên một vật.
-  Chỉ dùng khi cần minh hoạ kiến thức. Shot có overlay nên có framing object hoặc wide để thấy rõ vật.
+  Chỉ dùng khi cần minh hoạ kiến thức. Shot có overlay count PHẢI có framing object (target = nhóm vật) hoặc wide để thấy rõ
+  từng vật; text của count là đúng số vật được đếm trong câu.
+- illustration: khi câu thoại nhắc tới một sự vật, con vật hay hình ảnh so sánh mà bối cảnh KHÔNG có sẵn (ví dụ "hình tròn giống
+  cái bánh xe" → bánh xe; "số 8 như chú lật đật" → con lật đật; "số 9 như chiếc móc treo" → móc treo), thêm illustration để hình
+  đó bật ra cạnh nhân vật đúng lúc nói tới: key slug tiếng Anh (cùng sự vật dùng lại cùng key), description tiếng Anh vẽ MỘT sự vật
+  đơn lẻ (không người, không chữ), caption tiếng Việt 1-3 từ, cue là cụm từ NGUYÊN VĂN trong câu thoại.
+  Dùng cho những hình giúp học sinh hiểu bài; không minh hoạ vật đã có trong nền hoặc đang được đếm bằng overlay; tối đa 1 hình
+  mỗi shot và khoảng 1 hình cho mỗi 3-4 câu thoại.
+  Khi câu thoại đếm hoặc nói số lượng một nhóm vật KHÔNG có trong nền ("một, hai, ba... sáu cây bút chì", "có 7 cục tẩy"), dùng
+  illustration với count = ĐÚNG số lượng đó (2-10): description và key vẫn là MỘT vật số ít ("a yellow pencil", key "pencil"),
+  tuyệt đối không ghi số lượng vào description, caption dạng "<số> <tên vật>" ("6 bút chì") — video tự nhân hình thành đúng
+  count cái và hiện từng cái theo nhịp đếm. Hình một chữ số ("Số 8") không bao giờ có count.
 - sfx (không bắt buộc) chỉ cho điểm nhấn: ${Object.entries(SFX)
   .filter(([id]) => !['pop', 'whoosh', 'swish'].includes(id))
   .map(([id, d]) => `${id} (${d})`)
@@ -194,6 +205,15 @@ ${pick}
 Kịch bản:
 ${sections}
 ${feedback ? `\nNgười duyệt góp ý về bản video trước: "${feedback}". Hãy dàn dựng lại cho phù hợp.` : ''}`;
+}
+
+/** Hình minh hoạ: một sự vật đơn lẻ bật ra cạnh nhân vật khi lời thoại nhắc tới */
+export function illustrationPrompt(description: string, styled = false) {
+  return `${styled ? STYLE_FROM_REFERENCE : ART_STYLE}
+A single isolated object illustration (sticker-like, no scene): ${description}.
+Exactly ONE single object (if the description mentions several, draw only one of them), centered, fully visible with a generous empty margin, clean readable silhouette, no people, no hands,
+no text, letters or numbers unless the object itself is a written number. ${MAGENTA_BG}
+The object itself must not contain any pink, magenta or purple colors.`;
 }
 
 const MAGENTA_BG =

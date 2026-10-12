@@ -93,6 +93,91 @@ function readingOrder(boxes: Box[]): Box[] {
   return rows.flatMap((r) => r.sort((x, y) => x[1] - y[1]));
 }
 
+/** Lúc đọc tới cụm từ `cue` trong câu (ước lượng theo vị trí ký tự), hơi sớm một chút để hình kịp bật ra */
+function cueTime(text: string, cue: string, audioOffset: number, audioFrames: number): number {
+  const at = cue ? text.toLowerCase().indexOf(cue.toLowerCase()) : -1;
+  return textTime(text, at, audioOffset, audioFrames);
+}
+
+/** Frame (tính từ đầu shot) khi giọng đọc tới ký tự thứ `at` — ước lượng theo tỉ lệ độ dài chữ */
+function textTime(text: string, at: number, audioOffset: number, audioFrames: number): number {
+  const ratio = at > 0 ? at / Math.max(1, text.length) : 0;
+  return Math.max(audioOffset, audioOffset + Math.round(ratio * audioFrames) - 4);
+}
+
+const COUNT_WORDS = ['một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín', 'mười'];
+
+/**
+ * Vị trí (ký tự) của từng tiếng đếm "một, hai, ba..." liền nhau trong câu; thiếu tiếng nào thì dừng ở đó.
+ * Chỉ nhận tiếng đứng riêng ("ba" không khớp "bao") và các tiếng phải gần nhau (là lời đếm, không phải "một hộp").
+ */
+function countPositions(text: string, count: number): number[] {
+  const t = text.toLowerCase();
+  const find = (word: string, from: number) => {
+    const re = new RegExp(`(?<!\\p{L})${word}(?!\\p{L})`, 'gu');
+    re.lastIndex = from;
+    const m = re.exec(t);
+    return m ? m.index : -1;
+  };
+  for (let from = 0; ; ) {
+    const first = find(COUNT_WORDS[0], from);
+    if (first < 0) return [];
+    const out = [first];
+    for (let i = 1; i < count; i++) {
+      const at = find(COUNT_WORDS[i], out[i - 1] + 1);
+      if (at < 0 || at - out[i - 1] > 16) break;
+      out.push(at);
+    }
+    if (out.length >= Math.min(count, 2)) return out;
+    from = first + 1;
+  }
+}
+
+const unionBox = (list: Box[]): Box =>
+  list.reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]);
+
+/** Số vật cần đếm ghi trong nhãn ("8", "8 bút chì") */
+function countOf(text: string): number | null {
+  const m = text.match(/\d+/);
+  return m ? Number(m[0]) : null;
+}
+
+interface Footprint {
+  id: string;
+  x: number;
+  /** Nửa bề ngang thân (tỉ lệ chiều rộng nền) */
+  half: number;
+  top: number;
+}
+
+/**
+ * Nhân vật đứng chắn đồ vật đang được đếm/gắn nhãn thì nhãn số nằm đè lên người: dời nhân vật sang bên gần nhất
+ * còn trống (không chắn vật, không chồng lên người khác). Toạ độ chuẩn hoá theo ảnh nền.
+ */
+function clearOfTargets(people: Footprint[], targets: Box[]): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!targets.length) return out;
+  const covers = (x: number, f: Footprint) =>
+    targets.some((b) => {
+      const ix = Math.min(b[3], x + f.half) - Math.max(b[1], x - f.half);
+      const iy = b[2] - Math.max(b[0], f.top);
+      return ix > (b[3] - b[1]) * 0.25 && iy > (b[2] - b[0]) * 0.25;
+    });
+  const placed: { x: number; half: number }[] = [];
+  for (const f of [...people].sort((a, b) => a.x - b.x)) {
+    const free = (x: number) => !covers(x, f) && placed.every((p) => Math.abs(p.x - x) >= (p.half + f.half) * 0.9);
+    let x = f.x;
+    if (!free(x)) {
+      const candidates: number[] = [];
+      for (let d = 0.025; d <= 0.8; d += 0.025) candidates.push(f.x - d, f.x + d);
+      x = candidates.find((c) => c - f.half * 0.6 >= 0.02 && c + f.half * 0.6 <= 0.98 && free(c)) ?? f.x;
+    }
+    placed.push({ x, half: f.half });
+    if (x !== f.x) out.set(f.id, x);
+  }
+  return out;
+}
+
 /** Ghép kịch bản + storyboard + tài sản + giọng đọc thành props có thời gian chính xác cho Remotion. */
 export function buildRenderProps(input: TimelineInput): { props: LessonRenderProps; cues: SubtitleCue[] } {
   const { script, board, assets, voices, url, audio } = input;
@@ -126,6 +211,7 @@ export function buildRenderProps(input: TimelineInput): { props: LessonRenderPro
       height: a.meta.height ?? 1400,
       headTop: a.meta.headTop ?? 0.01,
       bodyCx: a.meta.bodyCx ?? 0.5,
+      mouthY: a.meta.mouthY ?? null,
       facing: a.meta.facing ?? (rigged ? 'right' : 'front'),
     };
   }
@@ -187,12 +273,21 @@ export function buildRenderProps(input: TimelineInput): { props: LessonRenderPro
       const action = shot.action === 'point' && !targetBox ? 'talk' : shot.action;
 
       let overlay: RenderShot['overlay'] = null;
+      let shotTarget = targetBox;
       if (shot.overlay) {
-        const inst = readingOrder(instances[shot.overlay.target] ?? []);
+        // AI nhận diện có thể thấy nhiều vật hơn số cần đếm (chồng vở nhận thành 18 quyển): chỉ đánh đúng số đã nói
+        const want = shot.overlay.kind === 'count' ? countOf(shot.overlay.text) : null;
+        const found = readingOrder(instances[shot.overlay.target] ?? []);
+        const inst = want && want < found.length ? found.slice(0, want) : found;
         const single = boxes[shot.overlay.target] ?? targetBox;
         if (shot.overlay.kind === 'count' && inst.length) {
           const startFrames = countTimes(line.ttsText, inst.length, audioOffset, audioFrames);
           overlay = { kind: 'count', text: shot.overlay.text, boxes: inst, startFrames };
+          // Đang đếm thì phải thấy rõ từng vật: khung người nói chuyển thành khung đồ vật
+          if (framing !== 'wide' && framing !== 'object') {
+            framing = 'object';
+            shotTarget = unionBox(inst);
+          }
           startFrames.forEach((f, k) => addSfx('pop', sceneFrom + from + f, 0.7, Math.min(1.6, 1 + k * 0.05)));
           addSfx('ding', sceneFrom + from + startFrames[startFrames.length - 1] + 12, 0.6);
         } else if (single) {
@@ -201,6 +296,36 @@ export function buildRenderProps(input: TimelineInput): { props: LessonRenderPro
         }
       }
       if (shot.sfx) addSfx(shot.sfx, absAudio, 0.8);
+      const ill = shot.illustration ? assets.illustrations[shot.illustration.key] : undefined;
+      let illustration: RenderShot['illustration'] = null;
+      if (ill && shot.illustration) {
+        const count = shot.illustration.count ?? 1;
+        let start = cueTime(line.text, shot.illustration.cue, audioOffset, audioFrames);
+        const countStarts: number[] = [];
+        if (count > 1) {
+          // Hiện từng vật đúng lúc đọc "một, hai, ba..."; câu không đếm từng tiếng thì hiện nhanh liên tiếp
+          const spoken = countPositions(line.text, count).map((at) => textTime(line.text, at, audioOffset, audioFrames));
+          if (spoken.length) start = Math.min(start, spoken[0] - 6);
+          // Hiện liên tiếp thì phải xong (cả chú thích tổng) trước khi hết shot
+          else start = Math.min(start, durationInFrames - 36 - (count - 1) * 4);
+          start = Math.max(audioOffset, start);
+          for (let i = 0; i < count; i++) {
+            const prev = countStarts[i - 1] ?? start;
+            countStarts.push(Math.max(spoken[i] ?? prev + 4, i ? prev + 3 : start));
+          }
+        }
+        illustration = {
+          src: url(ill.files.image),
+          caption: shot.illustration.caption,
+          width: ill.meta.width ?? 900,
+          height: ill.meta.height ?? 900,
+          start,
+          count,
+          countStarts,
+        };
+        addSfx('pop', sceneFrom + from + start, 0.6, 1.1);
+        countStarts.slice(1).forEach((f, i) => addSfx('pop', sceneFrom + from + f, 0.4, 1 + i * 0.04));
+      }
       if (shot.reaction === 'hop' && listener) {
         addSfx('boing', sceneFrom + from + audioOffset + Math.min(20, Math.round(audioFrames * 0.3)) + 4, 0.35);
       }
@@ -216,7 +341,7 @@ export function buildRenderProps(input: TimelineInput): { props: LessonRenderPro
         mouth: clip?.mouth ?? '',
         level: clip?.level ?? '',
         framing,
-        targetBox,
+        targetBox: shotTarget,
         // Shot đầu mỗi cảnh không có gì để "di chuyển từ"
         transition: i === 0 ? 'cut' : shot.transition,
         motion: shot.motion,
@@ -224,8 +349,22 @@ export function buildRenderProps(input: TimelineInput): { props: LessonRenderPro
         reaction: listener ? shot.reaction : 'none',
         listener,
         overlay,
+        illustration,
       };
     });
+
+    // Vị trí đứng; ai chắn đồ vật đang đếm/gắn nhãn trong cảnh thì dời sang bên
+    const bgW = bg?.meta.width ?? 1920;
+    const bgH = bg?.meta.height ?? 1080;
+    const footprints: Footprint[] = present.map((c) => {
+      const ch = characters[c.id];
+      const bodyHeight = BODY_HEIGHT[roleOf(c.id)] ?? 0.5;
+      const spriteW = (bodyHeight / Math.max(0.3, 1 - ch.headTop)) * (ch.width / ch.height) * (bgH / bgW);
+      // Phần thân chiếm khoảng 70% bề ngang khung (khung chừa chỗ cho tay giơ lên)
+      return { id: c.id, x: POSITION_X[c.position], half: spriteW * 0.35, top: FEET_Y - bodyHeight };
+    });
+    const keepClear = shots.flatMap((sh) => sh.overlay?.boxes ?? []);
+    const moved = clearOfTargets(footprints, keepClear);
 
     const rendered: RenderScene = {
       from: sceneFrom,
@@ -238,7 +377,7 @@ export function buildRenderProps(input: TimelineInput): { props: LessonRenderPro
       },
       characters: present.map((c) => ({
         id: c.id,
-        x: POSITION_X[c.position],
+        x: moved.get(c.id) ?? POSITION_X[c.position],
         feetY: FEET_Y,
         bodyHeight: BODY_HEIGHT[roleOf(c.id)] ?? 0.5,
       })),

@@ -35,6 +35,8 @@ export interface RenderCharacter {
   headTop: number;
   /** Tâm ngang của thân (tỉ lệ theo chiều rộng khung): điểm đặt và trục lật ảnh */
   bodyCx: number;
+  /** Tâm miệng (tỉ lệ theo chiều cao khung); null với bộ dáng cũ */
+  mouthY: number | null;
   /** Hướng nhìn của ảnh gốc */
   facing: 'right' | 'front';
 }
@@ -61,6 +63,18 @@ export interface RenderShot {
   /** Người nghe chính (để khung two-shot và hướng nhìn) */
   listener: string | null;
   overlay: { kind: 'label' | 'count'; text: string; boxes: Box[]; startFrames: number[] } | null;
+  /** Hình minh hoạ bật ra khi lời thoại nhắc tới (frame tính từ đầu shot) */
+  illustration: {
+    src: string;
+    caption: string;
+    width: number;
+    height: number;
+    start: number;
+    /** Số bản sao của hình (đếm vật); 1 = một hình */
+    count: number;
+    /** Frame hiện từng bản sao, khớp lúc đọc "một, hai, ba..." */
+    countStarts: number[];
+  } | null;
 }
 
 export interface RenderSceneCharacter {
