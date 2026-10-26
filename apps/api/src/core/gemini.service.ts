@@ -1,11 +1,26 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import fs from 'node:fs';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { GoogleGenAI, type Part } from '@google/genai';
+import { GoogleAuth } from 'google-auth-library';
 import { z } from 'zod';
 import { config } from './config.js';
+import { AGENT_PLATFORM, agentUrl, geminiPlatform } from './gemini-platform.js';
 import { SettingsService } from './settings.service.js';
 import { UsageService, type GeminiUsageMetadata } from './usage.service.js';
 
 const REST = 'https://generativelanguage.googleapis.com/v1beta/models';
+const AGENT = AGENT_PLATFORM;
+const SIZES = ['1K', '2K', '4K'];
+
+/**
+ * Đường gọi một model: `agent` = Agent Platform (service account), `key` = Developer API (API key).
+ * Agent Platform là đường chính; dịch vụ nó chưa có thì gọi bằng key phụ.
+ */
+type Via = 'agent' | 'key';
+/** Model chỉ có trên Developer API */
+const KEY_ONLY = /^lyria-3/;
+/** Agent Platform báo model không tồn tại hoặc chưa mở cho project */
+const MISSING = /\b404\b|NOT_FOUND|was not found|is not found|not supported/i;
 
 /** Một đoạn lời cho TTS; `style` đi qua speechMetadata.style nên không bị đọc thành tiếng */
 export interface SpeechPart {
@@ -57,15 +72,29 @@ function toGeminiSchema(schema: z.ZodType): unknown {
 }
 
 @Injectable()
-export class GeminiService {
+export class GeminiService implements OnModuleInit {
   private readonly logger = new Logger(GeminiService.name);
   private readonly imageSlots = new Semaphore(4);
-  private sdk: { key: string; ai: GoogleGenAI } | null = null;
+  private agentSdk: GoogleGenAI | null = null;
+  private keySdk: { key: string; ai: GoogleGenAI } | null = null;
+  /** Model Agent Platform báo không có (phát hiện lúc chạy): từ đó gọi thẳng bằng key phụ */
+  private readonly keyOnly = new Set<string>();
+  /** Agent Platform: thư viện tự đổi file khoá lấy access token và làm mới trước khi hết hạn */
+  private readonly auth = AGENT ? new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] }) : null;
 
   constructor(
     @Inject(UsageService) private readonly usage: UsageService,
     @Inject(SettingsService) private readonly settings: SettingsService,
   ) {}
+
+  onModuleInit() {
+    const p = geminiPlatform();
+    this.logger.log(
+      p.provider === 'agent-platform'
+        ? `AI: Gemini Enterprise Agent Platform (${p.project}/${p.location}, ${p.account ?? 'service account của môi trường chạy'})`
+        : 'AI: Gemini Developer API (API key)',
+    );
+  }
 
   /** Key do admin nhập trên trang Cài đặt (đổi key không cần khởi động lại) */
   private async key() {
@@ -74,17 +103,49 @@ export class GeminiService {
     return key;
   }
 
-  private async ai() {
+  private async hasKey() {
+    return !!(await this.settings.geminiKey());
+  }
+
+  private via(model: string): Via {
+    return AGENT && !KEY_ONLY.test(model) && !this.keyOnly.has(model) ? 'agent' : 'key';
+  }
+
+  /**
+   * Chạy `fn` theo đường của model. Agent Platform báo không có model mà admin đã nhập key thì chuyển sang
+   * Developer API và nhớ lại cho các lần sau (đến khi khởi động lại).
+   */
+  private async routed<T>(model: string, fn: (via: Via) => Promise<T>): Promise<T> {
+    const via = this.via(model);
+    try {
+      return await fn(via);
+    } catch (err) {
+      if (via !== 'agent' || !MISSING.test((err as Error).message) || !(await this.hasKey())) throw err;
+      this.keyOnly.add(model);
+      this.logger.warn(`${model}: Agent Platform chưa có model này, chuyển sang Gemini API key`);
+      return fn('key');
+    }
+  }
+
+  private async ai(via: Via) {
+    if (via === 'agent') {
+      const { project, location } = config.gemini;
+      return (this.agentSdk ??= new GoogleGenAI({ vertexai: true, project, location }));
+    }
     const key = await this.key();
-    if (this.sdk?.key !== key) this.sdk = { key, ai: new GoogleGenAI({ apiKey: key }) };
-    return this.sdk.ai;
+    if (this.keySdk?.key !== key) this.keySdk = { key, ai: new GoogleGenAI({ apiKey: key }) };
+    return this.keySdk.ai;
   }
 
   /** Gọi REST trực tiếp (SDK hiện bỏ mất speechMetadata của từng part). */
-  private async rest(model: string, body: unknown): Promise<any> {
-    const res = await fetch(`${REST}/${model}:generateContent`, {
+  private async rest(via: Via, model: string, body: unknown, verb = 'generateContent', location?: string): Promise<any> {
+    const agent = via === 'agent';
+    const res = await fetch(agent ? agentUrl(model, verb, location) : `${REST}/${model}:${verb}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': await this.key() },
+      headers: {
+        'content-type': 'application/json',
+        ...(agent ? { authorization: `Bearer ${await this.auth!.getAccessToken()}` } : { 'x-goog-api-key': await this.key() }),
+      },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(180_000),
     });
@@ -123,17 +184,19 @@ export class GeminiService {
     let blocked = false;
     for (let attempt = 0; attempt < 2; attempt++) {
       const model = opts.model ?? config.gemini.textModel;
-      const res = await this.withRetry(label, async () =>
-        (await this.ai()).models.generateContent({
-          model,
-          contents,
-          config: {
-            systemInstruction: opts.system,
-            temperature: opts.temperature ?? 0.8,
-            responseMimeType: 'application/json',
-            responseJsonSchema,
-          },
-        }),
+      const res = await this.routed(model, (via) =>
+        this.withRetry(label, async () =>
+          (await this.ai(via)).models.generateContent({
+            model,
+            contents,
+            config: {
+              systemInstruction: opts.system,
+              temperature: opts.temperature ?? 0.8,
+              responseMimeType: 'application/json',
+              responseJsonSchema,
+            },
+          }),
+        ),
       );
       await this.usage.record(model, label, res.usageMetadata as GeminiUsageMetadata);
       const text = res.text ?? '';
@@ -165,33 +228,37 @@ export class GeminiService {
     throw new GeminiError(blocked ? `${label}: ${BLOCKED_MESSAGE}` : `${label}: model trả về dữ liệu sai định dạng`);
   }
 
-  /** Tạo hoặc chỉnh sửa ảnh. `images` là ảnh tham chiếu (ví dụ ảnh gốc của nhân vật). */
+  /**
+   * Tạo hoặc chỉnh sửa ảnh. `images` là ảnh tham chiếu (ví dụ ảnh gốc của nhân vật).
+   * `hq`: ảnh vẽ một lần rồi dùng lại lâu dài (thiết kế nhân vật, bối cảnh) dùng model chất lượng cao.
+   */
   async image(
     label: string,
     prompt: string,
-    opts: { aspectRatio: string; images?: Buffer[]; imageSize?: string },
+    opts: { aspectRatio: string; images?: Buffer[]; imageSize?: string; hq?: boolean },
   ): Promise<Buffer> {
     const parts: Part[] = [
       ...(opts.images ?? []).map((b) => ({ inlineData: { mimeType: 'image/png', data: b.toString('base64') } })),
       { text: prompt },
     ];
-    return this.withRetry(label, () => this.imageSlots.run(async () => {
-      const res = await (await this.ai()).models.generateContent({
-        model: config.gemini.imageModel,
+    const model = opts.hq ? config.gemini.imageModelHq : config.gemini.imageModel;
+    return this.routed(model, (via) => this.withRetry(label, () => this.imageSlots.run(async () => {
+      const res = await (await this.ai(via)).models.generateContent({
+        model,
         contents: [{ role: 'user', parts }],
         config: {
           responseModalities: ['IMAGE'],
-          imageConfig: { aspectRatio: opts.aspectRatio, imageSize: opts.imageSize ?? '2K' },
+          imageConfig: { aspectRatio: opts.aspectRatio, imageSize: imageSize(model, opts.imageSize ?? '2K') },
         },
       });
-      await this.usage.record(config.gemini.imageModel, label, res.usageMetadata as GeminiUsageMetadata, 'IMAGE');
+      await this.usage.record(model, label, res.usageMetadata as GeminiUsageMetadata, 'IMAGE');
       const img = res.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
       if (!img?.inlineData?.data) {
         const reason = res.candidates?.[0]?.finishReason ?? res.promptFeedback?.blockReason ?? 'không rõ';
         throw new GeminiError(`${label}: model không trả về ảnh (${reason})`);
       }
       return Buffer.from(img.inlineData.data, 'base64');
-    }), 4);
+    }), 4));
   }
 
   /**
@@ -200,8 +267,8 @@ export class GeminiService {
    */
   async speech(label: string, parts: SpeechPart[], voice: string): Promise<Buffer> {
     const model = config.gemini.ttsModel;
-    return this.withRetry(label, async () => {
-      const res = await this.rest(model, {
+    return this.routed(model, (via) => this.withRetry(label, async () => {
+      const res = await this.rest(via, model, {
         contents: [
           {
             role: 'user',
@@ -221,16 +288,40 @@ export class GeminiService {
       // Một số model trả PCM thô (audio/L16;rate=24000)
       const rate = Number(/rate=(\d+)/.exec(audio.mimeType ?? '')?.[1] ?? 24000);
       return pcmToWav(buf, rate);
-    });
+    }));
   }
 
-  /** Sáng tác nhạc nền bằng Lyria. Trả về file âm thanh (thường là MP3). */
+  /**
+   * Sáng tác nhạc nền bằng Lyria. Trả về file âm thanh (thường là MP3).
+   * Agent Platform chưa có Lyria 3.x: gọi bằng key phụ; không có key hoặc key lỗi thì dùng lyria-002 trên Agent Platform.
+   */
   async music(label: string, prompt: string): Promise<{ audio: Buffer; mimeType: string }> {
-    const model = config.gemini.musicModel;
+    const { musicModel, musicFallback } = config.gemini;
+    const main = this.via(musicModel);
+    if (main === 'agent' || !AGENT) return this.compose(label, prompt, musicModel, main);
+    if (await this.hasKey()) {
+      try {
+        return await this.compose(label, prompt, musicModel, 'key');
+      } catch (err) {
+        this.logger.warn(`${label}: ${musicModel} qua API key lỗi, dùng ${musicFallback} (${(err as Error).message.slice(0, 160)})`);
+      }
+    }
+    return this.compose(label, prompt, musicFallback, 'agent');
+  }
+
+  private compose(label: string, prompt: string, model: string, via: Via): Promise<{ audio: Buffer; mimeType: string }> {
     return this.withRetry(
       label,
       async () => {
-        const res = await this.rest(model, {
+        if (/^lyria-0/.test(model)) {
+          // Lyria đời cũ (Agent Platform): API predict, trả WAV stereo 48 kHz ~30 giây
+          const res = await this.rest(via, model, { instances: [{ prompt }], parameters: {} }, 'predict', config.gemini.musicLocation);
+          await this.usage.record(model, label, {}, 'AUDIO');
+          const data = res.predictions?.[0]?.bytesBase64Encoded;
+          if (!data) throw new GeminiError(`${label}: model không trả về âm thanh`);
+          return { audio: Buffer.from(data, 'base64'), mimeType: String(res.predictions[0].mimeType ?? 'audio/wav') };
+        }
+        const res = await this.rest(via, model, {
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           generationConfig: { responseModalities: ['AUDIO'] },
         });
@@ -249,12 +340,14 @@ export class GeminiService {
   /** Trả lời dạng văn bản tự do (đọc tài liệu, OCR, viết mô tả). */
   async text(label: string, parts: Part[], opts: { system?: string; temperature?: number } = {}): Promise<string> {
     const model = config.gemini.textModel;
-    const res = await this.withRetry(label, async () =>
-      (await this.ai()).models.generateContent({
-        model,
-        contents: [{ role: 'user', parts }],
-        config: { systemInstruction: opts.system, temperature: opts.temperature ?? 0.2 },
-      }),
+    const res = await this.routed(model, (via) =>
+      this.withRetry(label, async () =>
+        (await this.ai(via)).models.generateContent({
+          model,
+          contents: [{ role: 'user', parts }],
+          config: { systemInstruction: opts.system, temperature: opts.temperature ?? 0.2 },
+        }),
+      ),
     );
     await this.usage.record(model, label, res.usageMetadata as GeminiUsageMetadata);
     const text = (res.text ?? '').trim();
@@ -265,22 +358,38 @@ export class GeminiService {
 
   /** Chép lời một đoạn âm thanh (dùng để kiểm tra TTS có đọc nhầm chỉ dẫn không). */
   async transcribe(label: string, wav: Buffer, prompt: string): Promise<string> {
-    const res = await this.withRetry(label, async () =>
-      (await this.ai()).models.generateContent({
-        model: config.gemini.textModel,
-        contents: [
-          { role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: wav.toString('base64') } }, { text: prompt }] },
-        ],
-        config: { temperature: 0 },
-      }),
+    const model = config.gemini.textModel;
+    const res = await this.routed(model, (via) =>
+      this.withRetry(label, async () =>
+        (await this.ai(via)).models.generateContent({
+          model,
+          contents: [
+            { role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: wav.toString('base64') } }, { text: prompt }] },
+          ],
+          config: { temperature: 0 },
+        }),
+      ),
     );
-    await this.usage.record(config.gemini.textModel, label, res.usageMetadata as GeminiUsageMetadata);
+    await this.usage.record(model, label, res.usageMetadata as GeminiUsageMetadata);
     return (res.text ?? '').trim();
   }
 
+  /**
+   * Phần video gửi kèm câu hỏi. Developer API: tải lên Files API rồi xoá bằng `done`.
+   * Agent Platform không có Files API: gửi thẳng dữ liệu video trong request.
+   */
+  async videoPart(filePath: string): Promise<{ part: Part; done: () => Promise<void> }> {
+    if (this.via(config.gemini.textModel) === 'agent') {
+      const data = (await fs.promises.readFile(filePath)).toString('base64');
+      return { part: { inlineData: { mimeType: 'video/mp4', data } }, done: async () => undefined };
+    }
+    const file = await this.uploadVideo(filePath);
+    return { part: { fileData: { fileUri: file.uri!, mimeType: 'video/mp4' } }, done: () => this.deleteFile(file.name!) };
+  }
+
   /** Tải video lên Gemini Files API và chờ xử lý xong. */
-  async uploadVideo(filePath: string) {
-    const ai = await this.ai();
+  private async uploadVideo(filePath: string) {
+    const ai = await this.ai('key');
     let file = await this.withRetry('Tải video lên Gemini', () =>
       ai.files.upload({ file: filePath, config: { mimeType: 'video/mp4' } }),
     );
@@ -294,9 +403,16 @@ export class GeminiService {
     return file;
   }
 
-  async deleteFile(name: string) {
-    await (await this.ai()).files.delete({ name }).catch(() => undefined);
+  private async deleteFile(name: string) {
+    await (await this.ai('key')).files.delete({ name }).catch(() => undefined);
   }
+}
+
+/** Cỡ ảnh không vượt quá mức model hỗ trợ (bản Lite chỉ vẽ 1K) */
+function imageSize(model: string, wanted: string) {
+  const max = SIZES.indexOf(/lite/.test(model) ? '1K' : '4K');
+  const i = SIZES.indexOf(wanted);
+  return i > max ? SIZES[max] : wanted;
 }
 
 export function pcmToWav(pcm: Buffer, sampleRate: number, channels = 1): Buffer {

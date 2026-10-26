@@ -43,14 +43,42 @@ export const config = {
   },
   /** Bucket GCS gắn vào STORAGE_DIR (Cloud Run volume): tải file qua link ký sẵn thay vì đi qua API */
   storageBucket: process.env.STORAGE_BUCKET ?? '',
-  gemini: {
-    /** Dự phòng khi admin chưa nhập key trên trang Cài đặt */
-    apiKey: process.env.GEMINI_API_KEY ?? '',
-    textModel: process.env.GEMINI_TEXT_MODEL ?? 'gemini-3.8-flash',
-    ttsModel: process.env.GEMINI_TTS_MODEL ?? 'gemini-3.8-flash-tts',
-    imageModel: process.env.GEMINI_IMAGE_MODEL ?? 'gemini-3.1-flash-image',
-    musicModel: process.env.GEMINI_MUSIC_MODEL ?? 'lyria-3.5',
-  },
+  gemini: (() => {
+    /**
+     * agent-platform: Gemini Enterprise Agent Platform (tên cũ Vertex AI), xác thực bằng service account
+     * (file khoá JSON qua GOOGLE_APPLICATION_CREDENTIALS, hoặc service account của Cloud Run).
+     * developer-api: Gemini Developer API bằng API key (đường cũ, giữ để rollback).
+     */
+    const provider = (process.env.GEMINI_PROVIDER ??
+      (process.env.GOOGLE_CLOUD_PROJECT ? 'agent-platform' : 'developer-api')) as 'agent-platform' | 'developer-api';
+    const imageModel = process.env.GEMINI_IMAGE_MODEL ?? 'gemini-3.1-flash-lite-image';
+    return {
+      provider,
+      project: process.env.GOOGLE_CLOUD_PROJECT ?? '',
+      location: process.env.GOOGLE_CLOUD_LOCATION || 'global',
+      /** Lyria trên Agent Platform chỉ có ở global/us-central1 */
+      musicLocation: process.env.GEMINI_MUSIC_LOCATION || 'global',
+      credentials: process.env.GOOGLE_APPLICATION_CREDENTIALS ?? '',
+      /**
+       * developer-api: key chính. agent-platform: key phụ cho dịch vụ Agent Platform chưa có (Lyria 3.x, model
+       * Agent Platform báo không tồn tại). Admin nhập key trên trang Cài đặt thì key đó được ưu tiên.
+       */
+      apiKey: process.env.GEMINI_API_KEY ?? '',
+      textModel: process.env.GEMINI_TEXT_MODEL ?? 'gemini-3.8-flash',
+      ttsModel: process.env.GEMINI_TTS_MODEL ?? 'gemini-3.8-flash-tts',
+      /** Nano Banana 2 Lite: rẻ hơn, chỉ vẽ tối đa 1K; dùng cho hình minh hoạ, dáng và mảnh nhép miệng */
+      imageModel,
+      /**
+       * Ảnh vẽ một lần rồi dùng lại từ thư viện (thiết kế nhân vật, bối cảnh): dùng Nano Banana 2 bản thường, vẽ 2K
+       * cho chi tiết và đường nét đẹp hơn. Đặt bằng GEMINI_IMAGE_MODEL để mọi ảnh dùng chung một model.
+       */
+      imageModelHq: process.env.GEMINI_IMAGE_HQ_MODEL || 'gemini-3.1-flash-image',
+      /** Lyria 3.x chỉ có trên Developer API: Agent Platform dùng key phụ cho nhạc, không có key thì dùng musicFallback */
+      musicModel: process.env.GEMINI_MUSIC_MODEL || 'lyria-3.5',
+      /** Agent Platform chỉ có lyria-002 (bản nhạc ~30 giây, video phát lặp) */
+      musicFallback: process.env.GEMINI_MUSIC_FALLBACK_MODEL || 'lyria-002',
+    };
+  })(),
   render: {
     concurrency: process.env.RENDER_CONCURRENCY ? Number(process.env.RENDER_CONCURRENCY) : null,
   },

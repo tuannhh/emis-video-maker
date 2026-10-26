@@ -28,6 +28,8 @@ export interface ComposedRig {
   /** Miếng dán miệng mở / mắt nhắm (PNG trong suốt cùng kích thước) */
   mouth: Buffer;
   blink: Buffer;
+  /** Miếng dán biểu cảm vùng mắt + lông mày (vui, ngạc nhiên, suy nghĩ); miệng vẫn nhép như thường */
+  expressions: Record<string, Buffer>;
   head: RigBox;
   /** Vùng miệng (để căn khung trung/cận cảnh không cắt mất miệng) */
   mouthBox: RigBox;
@@ -297,8 +299,9 @@ function patch(src: RigImage, m: Float32Array): Uint8Array {
 /**
  * @param images ảnh đã tách nền, cùng khung: phải có idle, idleOpen, blink và các dáng tay
  * @param poseKeys các dáng tay cần ghép (talk, explain, point, cheer...)
+ * @param expressionKeys ảnh biểu cảm (chỉ đổi mắt, lông mày) cần tách thành miếng dán
  */
-export async function composeRig(images: Record<string, Buffer>, poseKeys: string[]): Promise<ComposedRig> {
+export async function composeRig(images: Record<string, Buffer>, poseKeys: string[], expressionKeys: string[] = []): Promise<ComposedRig> {
   const idle = await loadRgba(images.idle);
   const open = await loadRgba(images.idleOpen);
   const blink = await loadRgba(images.blink);
@@ -336,12 +339,44 @@ export async function composeRig(images: Record<string, Buffer>, poseKeys: strin
     for (let i = 0; i < n; i++) if (m[i] && !inBox(head, i % w, Math.floor(i / w))) m[i] = 0;
     return toPng(patch(src, feather(dilate(m, w, h, 6), w, h, 3)), w, h);
   };
+  const mouthBox = found.mouth.length ? found.mouth.map((c) => c.box).reduce(union) : head;
+
+  // Biểu cảm: chỉ lấy phần thay đổi trong vùng mắt + lông mày (phía trong mặt, trên miệng) — tóc, viền đầu,
+  // miệng giữ của ảnh đứng nên ghép lên không lệch và miệng vẫn nhép theo lời
+  const expressions: Record<string, Buffer> = {};
+  if (found.eyes.length && expressionKeys.length) {
+    const eyes = found.eyes.map((c) => c.box).reduce(union);
+    const ew = eyes.x2 - eyes.x1;
+    const eh = Math.max(eyes.y2 - eyes.y1, ew * 0.25);
+    const region: RigBox = {
+      x1: Math.max(head.x1, Math.round(eyes.x1 - ew * 0.35)),
+      x2: Math.min(head.x2, Math.round(eyes.x2 + ew * 0.35)),
+      y1: Math.max(head.y1, Math.round(eyes.y1 - eh * 1.3)),
+      y2: Math.min(mouthBox.y1 - 2, Math.round(eyes.y2 + eh * 0.6)),
+    };
+    const inside = erode(opaque(idle), w, h, Math.max(3, Math.round(w * 0.008)));
+    for (const k of expressionKeys) {
+      if (!images[k]) continue;
+      const img = await loadRgba(images[k]);
+      const changed = solidChanges(idle, img, 40, 1);
+      for (let i = 0; i < n; i++) if (changed[i] && (!inside[i] || !inBox(region, i % w, Math.floor(i / w)))) changed[i] = 0;
+      const parts = components(changed, w, h).filter((c) => c.area >= n * 0.00008);
+      const m = fromComponents(parts, n);
+      const area = m.reduce((a, b) => a + b, 0);
+      // Lần sửa ảnh không đổi gì ở mắt: bỏ biểu cảm này
+      if (area < n * 0.0003) continue;
+      const soft = feather(dilate(m, w, h, 7), w, h, 3);
+      for (let i = 0; i < n; i++) if (!inBox(region, i % w, Math.floor(i / w))) soft[i] = 0;
+      expressions[k] = await toPng(patch(img, soft), w, h);
+    }
+  }
   return {
     poses,
     mouth: await facePatch(open, found.mouth),
     blink: await facePatch(blink, found.eyes),
+    expressions,
     head,
-    mouthBox: found.mouth.length ? found.mouth.map((c) => c.box).reduce(union) : head,
+    mouthBox,
     coverage,
   };
 }

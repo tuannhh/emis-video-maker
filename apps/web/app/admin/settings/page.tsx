@@ -48,15 +48,54 @@ function Settings() {
           </p>
         </div>
       </div>
+      {settings?.platform.provider === 'agent-platform' ? (
+        <div className="card">
+          <div className="card-head">
+            <h2>Gemini Enterprise Agent Platform</h2>
+            <span className="badge badge-ok">Đang dùng</span>
+          </div>
+          <p className="muted small" style={{ marginTop: 0 }}>
+            Các bước AI (viết kịch bản, vẽ hình, lồng tiếng, kiểm tra video) gọi Gemini bằng service account của doanh nghiệp,
+            cấu hình trên máy chủ. Dịch vụ nào Agent Platform chưa có (ví dụ nhạc nền {settings.platform.musicModel}) sẽ tự
+            chuyển sang Gemini API key phụ bên dưới; không có key phụ thì dùng {settings.platform.musicFallback} trên Agent
+            Platform.
+          </p>
+          <dl className="kv">
+            <dt>Project</dt>
+            <dd>
+              <code>{settings.platform.project}</code>
+            </dd>
+            <dt>Vùng xử lý</dt>
+            <dd>
+              <code>{settings.platform.location}</code>
+            </dd>
+            <dt>Service account</dt>
+            <dd>{settings.platform.account ? <code>{settings.platform.account}</code> : 'Service account của máy chủ'}</dd>
+            <dt>Model vẽ ảnh</dt>
+            <dd>
+              <code>{settings.platform.imageModel}</code> (hình minh hoạ) · <code>{settings.platform.imageModelHq}</code> (nhân vật,
+              bối cảnh)
+            </dd>
+            <dt>Nhạc nền</dt>
+            <dd>
+              <code>{settings.platform.musicModel}</code>{' '}
+              {g?.configured ? '(qua API key phụ)' : `(chưa có key phụ, đang dùng ${settings.platform.musicFallback})`}
+            </dd>
+          </dl>
+        </div>
+      ) : null}
       <div className="card">
         <div className="card-head">
-          <h2>Gemini API key</h2>
+          <h2>{settings?.platform.provider === 'agent-platform' ? 'Gemini API key phụ' : 'Gemini API key'}</h2>
           {g ? (
             <span className={`badge ${g.configured ? 'badge-ok' : 'badge-err'}`}>{g.configured ? 'Đang dùng' : 'Chưa có key'}</span>
           ) : null}
         </div>
         <p className="muted small" style={{ marginTop: 0 }}>
-          Key dùng cho mọi bước AI: viết kịch bản, vẽ nhân vật và bối cảnh, lồng tiếng, sáng tác nhạc, kiểm tra video. Lấy key tại{' '}
+          {settings?.platform.provider === 'agent-platform'
+            ? 'Không bắt buộc. Chỉ dùng cho dịch vụ Agent Platform chưa có (nhạc nền Lyria mới nhất) hoặc khi một model chưa mở trên Agent Platform. '
+            : 'Key dùng cho mọi bước AI: viết kịch bản, vẽ nhân vật và bối cảnh, lồng tiếng, sáng tác nhạc, kiểm tra video. '}
+          Lấy key tại{' '}
           <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
             Google AI Studio
           </a>
@@ -99,7 +138,13 @@ function Settings() {
                 type="button"
                 className="btn btn-danger"
                 disabled={busy}
-                onClick={() => confirm('Xoá key đã lưu? Hệ thống sẽ không gọi được Gemini cho tới khi có key mới.') && run(api.clearGeminiKey, 'Đã xoá key.')}
+                onClick={() =>
+                  confirm(
+                    settings?.platform.provider === 'agent-platform'
+                      ? 'Xoá key phụ? Nhạc nền sẽ chuyển sang model dự phòng trên Agent Platform.'
+                      : 'Xoá key đã lưu? Hệ thống sẽ không gọi được Gemini cho tới khi có key mới.',
+                  ) && run(api.clearGeminiKey, 'Đã xoá key.')
+                }
               >
                 Xoá key
               </button>

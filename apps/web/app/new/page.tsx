@@ -1,33 +1,43 @@
-'use client';
+"use client";
 
-import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ART_STYLES,
   DEFAULT_AUDIO,
   GRADES,
+  MOTION_LEVELS,
   MAX_CHOSEN_BACKGROUNDS,
   MAX_CHOSEN_CHARACTERS,
   SUBJECTS,
   VOICES,
+  type ArtStyle,
+  type MotionLevel,
   type UploadView,
-} from '@edu/shared';
-import { CharacterCreator, Modal } from '@/components/CharacterCreator';
-import { ImageField, MaterialsField, usePasteImages } from '@/components/Uploads';
-import { api, type AssetView } from '@/lib/api';
+} from "@edu/shared";
+import { CharacterCreator, Modal } from "@/components/CharacterCreator";
+import {
+  ImageField,
+  MaterialsField,
+  usePasteImages,
+} from "@/components/Uploads";
+import { api, type AssetView } from "@/lib/api";
 
 export default function NewLessonPage() {
   const router = useRouter();
-  const [topic, setTopic] = useState('');
-  const [subject, setSubject] = useState('Toán');
-  const [grade, setGrade] = useState('Lớp 1');
+  const [topic, setTopic] = useState("");
+  const [subject, setSubject] = useState("Toán");
+  const [grade, setGrade] = useState("Lớp 1");
   const [durationSec, setDuration] = useState(90);
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState("");
   const [burnSubtitles, setBurnSubtitles] = useState(true);
   const [withMusic, setWithMusic] = useState(true);
 
   const [materials, setMaterials] = useState<UploadView[]>([]);
   const addMaterials = useRef<((files: File[]) => void) | null>(null);
   const [styleRef, setStyleRef] = useState<UploadView | null>(null);
+  const [artStyle, setArtStyle] = useState<ArtStyle>("flat");
+  const [motion, setMotion] = useState<MotionLevel>("normal");
 
   const [assets, setAssets] = useState<AssetView[] | null>(null);
   const [chars, setChars] = useState<string[]>([]);
@@ -35,12 +45,19 @@ export default function NewLessonPage() {
   const [newCharacters, setNewCharacters] = useState(true);
   const [bgs, setBgs] = useState<string[]>([]);
   const [newBackgrounds, setNewBackgrounds] = useState(true);
-  const [creator, setCreator] = useState<null | 'mascot' | 'design'>(null);
+  const [creator, setCreator] = useState<null | "mascot" | "design">(null);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadAssets = useCallback(() => api.listAssets().then(setAssets).catch(() => setAssets([])), []);
+  const loadAssets = useCallback(
+    () =>
+      api
+        .listAssets()
+        .then(setAssets)
+        .catch(() => setAssets([])),
+    [],
+  );
   useEffect(() => {
     void loadAssets();
   }, [loadAssets]);
@@ -50,8 +67,8 @@ export default function NewLessonPage() {
     if (!creator) addMaterials.current?.(files);
   });
 
-  const characters = assets?.filter((a) => a.kind === 'character') ?? [];
-  const backgrounds = assets?.filter((a) => a.kind === 'background') ?? [];
+  const characters = assets?.filter((a) => a.kind === "character") ?? [];
+  const backgrounds = assets?.filter((a) => a.kind === "background") ?? [];
 
   function toggleChar(key: string) {
     setChars((cur) => {
@@ -63,7 +80,13 @@ export default function NewLessonPage() {
     });
   }
   const toggleBg = (key: string) =>
-    setBgs((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : cur.length >= MAX_CHOSEN_BACKGROUNDS ? cur : [...cur, key]));
+    setBgs((cur) =>
+      cur.includes(key)
+        ? cur.filter((k) => k !== key)
+        : cur.length >= MAX_CHOSEN_BACKGROUNDS
+          ? cur
+          : [...cur, key],
+    );
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -77,7 +100,7 @@ export default function NewLessonPage() {
         durationSec,
         notes: notes.trim() || undefined,
         burnSubtitles,
-        audio: { ...DEFAULT_AUDIO, musicId: withMusic ? 'auto' : null },
+        audio: { ...DEFAULT_AUDIO, musicId: withMusic ? "auto" : null },
         materialIds: materials.map((m) => m.id),
         characterKeys: chars,
         mascotKey: mascot ?? undefined,
@@ -85,6 +108,8 @@ export default function NewLessonPage() {
         backgroundKeys: bgs,
         newBackgrounds: bgs.length ? newBackgrounds : true,
         styleRefId: styleRef?.id,
+        artStyle: styleRef ? undefined : artStyle,
+        motion,
       });
       router.push(lesson.path);
     } catch (err) {
@@ -93,7 +118,8 @@ export default function NewLessonPage() {
     }
   }
 
-  const voiceTone = (id?: string) => VOICES.find((v) => v.id === id)?.tone ?? id;
+  const voiceTone = (id?: string) =>
+    VOICES.find((v) => v.id === id)?.tone ?? id;
   const reusedChars = chars.length;
   const reusedBgs = bgs.length;
 
@@ -126,7 +152,10 @@ export default function NewLessonPage() {
             <div className="row">
               <label className="field">
                 <span>Môn học</span>
-                <select value={subject} onChange={(e) => setSubject(e.target.value)}>
+                <select
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                >
                   {SUBJECTS.map((s) => (
                     <option key={s}>{s}</option>
                   ))}
@@ -134,7 +163,10 @@ export default function NewLessonPage() {
               </label>
               <label className="field">
                 <span>Lớp</span>
-                <select value={grade} onChange={(e) => setGrade(e.target.value)}>
+                <select
+                  value={grade}
+                  onChange={(e) => setGrade(e.target.value)}
+                >
                   {GRADES.map((g) => (
                     <option key={g}>{g}</option>
                   ))}
@@ -149,7 +181,7 @@ export default function NewLessonPage() {
                   step={15}
                   value={durationSec}
                   onChange={(e) => setDuration(Number(e.target.value))}
-                  style={{ width: '100%', marginTop: 10 }}
+                  style={{ width: "100%", marginTop: 10 }}
                 />
               </label>
             </div>
@@ -171,26 +203,40 @@ export default function NewLessonPage() {
               <span className="badge badge-muted">Không bắt buộc</span>
             </div>
             <p className="muted small" style={{ marginTop: 0 }}>
-              Tải sách giáo khoa, phiếu bài tập, giáo án... AI đọc nội dung (kể cả chữ trong ảnh) và soạn kịch bản bám theo tư liệu.
-              Không có tư liệu thì AI tự soạn nội dung theo chương trình.
+              Tải sách giáo khoa, phiếu bài tập, giáo án... AI đọc nội dung (kể
+              cả chữ trong ảnh) và soạn kịch bản bám theo tư liệu. Không có tư
+              liệu thì AI tự soạn nội dung theo chương trình.
             </p>
-            <MaterialsField value={materials} onChange={setMaterials} addRef={addMaterials} />
+            <MaterialsField
+              value={materials}
+              onChange={setMaterials}
+              addRef={addMaterials}
+            />
           </section>
 
           <section className="card">
             <div className="card-head">
               <h2>3. Nhân vật</h2>
               <div className="actions">
-                <button type="button" className="btn btn-sm" onClick={() => setCreator('mascot')}>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setCreator("mascot")}
+                >
                   ＋ Tải mascot
                 </button>
-                <button type="button" className="btn btn-sm" onClick={() => setCreator('design')}>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setCreator("design")}
+                >
                   ＋ AI tạo nhân vật
                 </button>
               </div>
             </div>
             <p className="muted small" style={{ marginTop: 0 }}>
-              Chọn tối đa {MAX_CHOSEN_CHARACTERS} nhân vật có sẵn để dùng lại (không tốn chi phí vẽ). Bấm ★ để chọn mascot dẫn dắt cả video.
+              Chọn tối đa {MAX_CHOSEN_CHARACTERS} nhân vật có sẵn để dùng lại
+              (không tốn chi phí vẽ). Bấm ★ để chọn mascot dẫn dắt cả video.
               Không chọn thì AI tự chọn hoặc vẽ nhân vật phù hợp.
             </p>
             {assets === null ? (
@@ -202,27 +248,42 @@ export default function NewLessonPage() {
                 {characters.map((a) => {
                   const on = chars.includes(a.key);
                   return (
-                    <div key={a.id} className={`pick${on ? ' on' : ''}`}>
-                      <button type="button" className="pick-main" onClick={() => toggleChar(a.key)} aria-pressed={on}>
+                    <div key={a.id} className={`pick${on ? " on" : ""}`}>
+                      <button
+                        type="button"
+                        className="pick-main"
+                        onClick={() => toggleChar(a.key)}
+                        aria-pressed={on}
+                      >
                         <div className="asset-img">
-                          <img src={a.urls.idle ?? a.urls.source ?? a.urls.base} alt={a.name} loading="lazy" />
+                          <img
+                            src={a.urls.idle ?? a.urls.source ?? a.urls.base}
+                            alt={a.name}
+                            loading="lazy"
+                          />
                         </div>
                         <div className="pick-body">
                           <strong>{a.name}</strong>
-                          <span className="muted small">{voiceTone(a.meta.voice)}</span>
+                          <span className="muted small">
+                            {voiceTone(a.meta.voice)}
+                          </span>
                         </div>
                       </button>
                       {on ? (
                         <button
                           type="button"
-                          className={`pick-star${mascot === a.key ? ' on' : ''}`}
+                          className={`pick-star${mascot === a.key ? " on" : ""}`}
                           title="Mascot dẫn dắt video"
-                          onClick={() => setMascot(mascot === a.key ? null : a.key)}
+                          onClick={() =>
+                            setMascot(mascot === a.key ? null : a.key)
+                          }
                         >
-                          ★ {mascot === a.key ? 'Mascot' : 'Chọn làm mascot'}
+                          ★ {mascot === a.key ? "Mascot" : "Chọn làm mascot"}
                         </button>
                       ) : null}
-                      {a.meta.origin === 'upload' ? <span className="pick-tag">Mascot</span> : null}
+                      {a.meta.origin === "upload" ? (
+                        <span className="pick-tag">Mascot</span>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -230,9 +291,18 @@ export default function NewLessonPage() {
             )}
             {chars.length ? (
               <label className="actions small" style={{ marginTop: 12 }}>
-                <input type="checkbox" checked={!newCharacters} onChange={(e) => setNewCharacters(!e.target.checked)} />
-                Chỉ dùng {chars.length === 1 ? 'nhân vật này' : 'các nhân vật đã chọn'} (AI không thêm nhân vật mới
-                {chars.length === 1 ? ', nhân vật nói chuyện trực tiếp với học sinh' : ''})
+                <input
+                  type="checkbox"
+                  checked={!newCharacters}
+                  onChange={(e) => setNewCharacters(!e.target.checked)}
+                />
+                Chỉ dùng{" "}
+                {chars.length === 1 ? "nhân vật này" : "các nhân vật đã chọn"}{" "}
+                (AI không thêm nhân vật mới
+                {chars.length === 1
+                  ? ", nhân vật nói chuyện trực tiếp với học sinh"
+                  : ""}
+                )
               </label>
             ) : null}
           </section>
@@ -240,7 +310,8 @@ export default function NewLessonPage() {
           <section className="card">
             <h2 style={{ marginBottom: 6 }}>4. Bối cảnh</h2>
             <p className="muted small" style={{ marginTop: 0 }}>
-              Chọn tối đa {MAX_CHOSEN_BACKGROUNDS} bối cảnh có sẵn để dùng lại. Không chọn thì AI tự chọn hoặc vẽ bối cảnh hợp nội dung.
+              Chọn tối đa {MAX_CHOSEN_BACKGROUNDS} bối cảnh có sẵn để dùng lại.
+              Không chọn thì AI tự chọn hoặc vẽ bối cảnh hợp nội dung.
             </p>
             {assets === null ? null : backgrounds.length === 0 ? (
               <p className="muted">Thư viện chưa có bối cảnh.</p>
@@ -249,8 +320,14 @@ export default function NewLessonPage() {
                 {backgrounds.map((a) => {
                   const on = bgs.includes(a.key);
                   return (
-                    <div key={a.id} className={`pick${on ? ' on' : ''}`}>
-                      <button type="button" className="pick-main" onClick={() => toggleBg(a.key)} aria-pressed={on} title={a.description}>
+                    <div key={a.id} className={`pick${on ? " on" : ""}`}>
+                      <button
+                        type="button"
+                        className="pick-main"
+                        onClick={() => toggleBg(a.key)}
+                        aria-pressed={on}
+                        title={a.description}
+                      >
                         <div className="asset-img">
                           <img src={a.urls.image} alt={a.key} loading="lazy" />
                         </div>
@@ -265,8 +342,13 @@ export default function NewLessonPage() {
             )}
             {bgs.length ? (
               <label className="actions small" style={{ marginTop: 12 }}>
-                <input type="checkbox" checked={!newBackgrounds} onChange={(e) => setNewBackgrounds(!e.target.checked)} />
-                Chỉ dùng các bối cảnh đã chọn (không vẽ bối cảnh mới — tiết kiệm nhất)
+                <input
+                  type="checkbox"
+                  checked={!newBackgrounds}
+                  onChange={(e) => setNewBackgrounds(!e.target.checked)}
+                />
+                Chỉ dùng các bối cảnh đã chọn (không vẽ bối cảnh mới — tiết kiệm
+                nhất)
               </label>
             ) : null}
           </section>
@@ -277,10 +359,62 @@ export default function NewLessonPage() {
               <span className="badge badge-muted">Không bắt buộc</span>
             </div>
             <p className="muted small" style={{ marginTop: 0 }}>
-              Tải một ảnh mẫu (ví dụ khung hình video cũ, tranh minh hoạ 3D...): nhân vật và bối cảnh AI vẽ mới sẽ theo phong cách của ảnh
-              này. Nhân vật, bối cảnh chọn từ thư viện giữ nguyên hình đã có.
+              Chọn một phong cách có sẵn, hoặc tải ảnh mẫu (ví dụ khung hình
+              video cũ) để AI vẽ theo đúng phong cách ảnh đó. Chỉ áp dụng cho
+              nhân vật, bối cảnh, hình minh hoạ AI vẽ mới; nhân vật, bối cảnh
+              chọn từ thư viện giữ nguyên hình đã có.
             </p>
-            <ImageField kind="style" value={styleRef} onChange={setStyleRef} label="Ảnh tham chiếu phong cách" />
+            <div className="style-grid" aria-disabled={!!styleRef}>
+              {(
+                Object.entries(ART_STYLES) as [
+                  ArtStyle,
+                  (typeof ART_STYLES)[ArtStyle],
+                ][]
+              ).map(([id, st]) => (
+                <button
+                  type="button"
+                  key={id}
+                  disabled={!!styleRef}
+                  className={`radio-card ${!styleRef && artStyle === id ? "selected" : ""}`}
+                  onClick={() => setArtStyle(id)}
+                >
+                  <input
+                    type="radio"
+                    checked={!styleRef && artStyle === id}
+                    readOnly
+                    tabIndex={-1}
+                  />
+                  <div>
+                    <strong>{st.label}</strong>
+                    <div className="muted small">{st.hint}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <ImageField
+              kind="style"
+              value={styleRef}
+              onChange={setStyleRef}
+              label="Hoặc ảnh tham chiếu phong cách"
+            />
+            <label className="field" style={{ marginTop: 14, maxWidth: 320 }}>
+              <span>Mức chuyển động của nhân vật</span>
+              <select
+                value={motion}
+                onChange={(e) => setMotion(e.target.value as MotionLevel)}
+              >
+                {(
+                  Object.entries(MOTION_LEVELS) as [
+                    MotionLevel,
+                    (typeof MOTION_LEVELS)[MotionLevel],
+                  ][]
+                ).map(([id, m]) => (
+                  <option key={id} value={id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </section>
         </div>
 
@@ -289,39 +423,71 @@ export default function NewLessonPage() {
             <h2 style={{ marginBottom: 12 }}>Tạo kịch bản</h2>
             {error ? <div className="alert alert-error">{error}</div> : null}
             <ul className="summary">
-              <li>{materials.length ? `${materials.length} tư liệu tham khảo` : 'AI tự soạn nội dung'}</li>
               <li>
-                {reusedChars ? `Dùng lại ${reusedChars} nhân vật` : 'AI tự chọn nhân vật'}
-                {mascot ? ` · mascot ${characters.find((c) => c.key === mascot)?.name}` : ''}
-                {reusedChars && !newCharacters ? ' · không thêm nhân vật mới' : ''}
+                {materials.length
+                  ? `${materials.length} tư liệu tham khảo`
+                  : "AI tự soạn nội dung"}
               </li>
               <li>
-                {reusedBgs ? `Dùng lại ${reusedBgs} bối cảnh` : 'AI tự chọn bối cảnh'}
-                {reusedBgs && !newBackgrounds ? ' · không vẽ bối cảnh mới' : ''}
+                {reusedChars
+                  ? `Dùng lại ${reusedChars} nhân vật`
+                  : "AI tự chọn nhân vật"}
+                {mascot
+                  ? ` · mascot ${characters.find((c) => c.key === mascot)?.name}`
+                  : ""}
+                {reusedChars && !newCharacters
+                  ? " · không thêm nhân vật mới"
+                  : ""}
               </li>
-              <li>{styleRef ? 'Vẽ theo ảnh phong cách đã tải' : 'Phong cách hoạt hình 2D mặc định'}</li>
+              <li>
+                {reusedBgs
+                  ? `Dùng lại ${reusedBgs} bối cảnh`
+                  : "AI tự chọn bối cảnh"}
+                {reusedBgs && !newBackgrounds ? " · không vẽ bối cảnh mới" : ""}
+              </li>
+              <li>
+                {styleRef
+                  ? "Vẽ theo ảnh phong cách đã tải"
+                  : ART_STYLES[artStyle].label}{" "}
+                · chuyển động {MOTION_LEVELS[motion].label.toLowerCase()}
+              </li>
             </ul>
             <label className="actions small" style={{ marginBottom: 10 }}>
-              <input type="checkbox" checked={burnSubtitles} onChange={(e) => setBurnSubtitles(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={burnSubtitles}
+                onChange={(e) => setBurnSubtitles(e.target.checked)}
+              />
               Hiện phụ đề trong video
             </label>
             <label className="actions small" style={{ marginBottom: 16 }}>
-              <input type="checkbox" checked={withMusic} onChange={(e) => setWithMusic(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={withMusic}
+                onChange={(e) => setWithMusic(e.target.checked)}
+              />
               Chèn nhạc nền
             </label>
-            <button className="btn btn-primary" style={{ width: '100%' }} disabled={busy || topic.trim().length < 3}>
+            <button
+              className="btn btn-primary"
+              style={{ width: "100%" }}
+              disabled={busy || topic.trim().length < 3}
+            >
               {busy ? <span className="spinner" /> : null} Tạo kịch bản bằng AI
             </button>
             <p className="muted small" style={{ marginBottom: 0 }}>
-              Mỗi nhân vật vẽ mới tốn khoảng 8 ảnh (~$0.8), mỗi bối cảnh mới 1–3 ảnh (~$0.1–0.3). Dùng lại từ thư viện thì không tốn chi phí
-              vẽ.
+              Mỗi nhân vật vẽ mới tốn khoảng 11 ảnh chất lượng cao (~$1.1), mỗi bối cảnh mới 1–3
+              ảnh (~$0.1–0.3). Dùng lại từ thư viện thì không tốn chi phí vẽ.
             </p>
           </div>
         </aside>
       </form>
 
       {creator ? (
-        <Modal title="Thêm nhân vật vào thư viện" onClose={() => setCreator(null)}>
+        <Modal
+          title="Thêm nhân vật vào thư viện"
+          onClose={() => setCreator(null)}
+        >
           <CharacterCreator
             initialMode={creator}
             context={{ topic: topic.trim() || undefined, subject, grade }}
@@ -330,8 +496,12 @@ export default function NewLessonPage() {
             onCreated={async (asset, mode) => {
               setCreator(null);
               await loadAssets();
-              setChars((cur) => (cur.includes(asset.key) ? cur : [...cur, asset.key].slice(-MAX_CHOSEN_CHARACTERS)));
-              if (mode === 'mascot') setMascot(asset.key);
+              setChars((cur) =>
+                cur.includes(asset.key)
+                  ? cur
+                  : [...cur, asset.key].slice(-MAX_CHOSEN_CHARACTERS),
+              );
+              if (mode === "mascot") setMascot(asset.key);
             }}
           />
         </Modal>

@@ -8,16 +8,13 @@ export class QaStep {
   constructor(@Inject(GeminiService) private readonly gemini: GeminiService) {}
 
   async run(script: LessonScript, videoPath: string): Promise<QaReport> {
-    const file = await this.gemini.uploadVideo(videoPath);
+    const video = await this.gemini.videoPart(videoPath);
     try {
-      return await this.gemini.json(
-        'AI kiểm tra video',
-        QaReportSchema,
-        [{ fileData: { fileUri: file.uri!, mimeType: 'video/mp4' } }, { text: qaPrompt(script) }],
-        { temperature: 0.2 },
-      );
+      return await this.gemini.json('AI kiểm tra video', QaReportSchema, [video.part, { text: qaPrompt(script) }], {
+        temperature: 0.2,
+      });
     } finally {
-      await this.gemini.deleteFile(file.name!);
+      await video.done();
     }
   }
 }

@@ -567,23 +567,129 @@ textarea:focus {
   grid-column: 3 / 5;
   font-size: 12px;
 }
+/* Ô chọn câu để góp ý */
+.line-pick {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 40px;
+  cursor: pointer;
+}
+.line-pick input {
+  width: 17px;
+  height: 17px;
+  cursor: pointer;
+}
+.line-picked {
+  background: var(--primary-soft);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+/* Câu AI vừa sửa / thêm / xoá so với bản trước */
+.line-changed {
+  background: var(--warning-soft);
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+.line-added {
+  background: var(--success-soft);
+  box-shadow: inset 3px 0 0 var(--success);
+}
+.line-diff {
+  grid-column: 3 / 6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.line-diff-old {
+  color: var(--muted);
+  text-decoration: line-through;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.diff-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.line-removed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 36px;
+  border-top: 1px dashed var(--border);
+  background: var(--danger-soft);
+  box-shadow: inset 3px 0 0 var(--danger);
+  font-size: 13px;
+}
+.line-removed-text {
+  flex: 1 1 200px;
+  min-width: 0;
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.diff-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
 @media (max-width: 700px) {
   .line {
     grid-template-columns: 28px minmax(0, 1fr);
   }
   /* Tay nắm kéo ở cột trái suốt chiều cao câu, các ô xếp dọc bên phải */
   .line-handle {
-    grid-row: span 4;
+    grid-row: span 6;
     height: auto;
     min-height: 40px;
   }
-  .line-tts {
+  .line-tts,
+  .line-diff {
     grid-column: 2;
   }
+  .line-removed {
+    padding-left: 10px;
+  }
+}
+.voice-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.voice-cell .btn {
+  align-self: flex-start;
+}
+.style-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.style-grid .radio-card {
+  margin: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+}
+.style-grid .radio-card.selected {
+  background: var(--primary-soft);
+}
+.style-grid .radio-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .char-row {
   display: grid;
-  grid-template-columns: 170px 150px minmax(0, 1fr);
+  grid-template-columns: 170px 210px minmax(0, 1fr);
   gap: 10px;
   padding: 10px 0;
   border-top: 1px dashed var(--border);

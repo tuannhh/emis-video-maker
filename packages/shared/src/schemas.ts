@@ -14,19 +14,51 @@ export const VOICES = [
 export const VOICE_IDS = VOICES.map((v) => v.id) as [string, ...string[]];
 
 /**
+ * Độ trẻ của giọng: các giọng TTS đều là người lớn, nên sau khi đọc hệ thống nâng đồng thời cao độ và âm sắc (formant)
+ * theo `factor`, giữ nguyên tốc độ. Bỏ trống = theo vai (trẻ em: medium, linh vật: light, người lớn: none).
+ */
+export const VOICE_YOUTH = {
+  none: { label: 'Giữ nguyên giọng', factor: 1 },
+  light: { label: 'Trẻ hơn một chút', factor: 1.06 },
+  medium: { label: 'Giọng trẻ em', factor: 1.11 },
+  strong: { label: 'Giọng bé nhỏ tuổi', factor: 1.17 },
+} as const;
+export type VoiceYouth = keyof typeof VOICE_YOUTH;
+export const VOICE_YOUTH_IDS = Object.keys(VOICE_YOUTH) as [VoiceYouth, ...VoiceYouth[]];
+
+export function defaultYouth(role: string): VoiceYouth {
+  return role === 'child' ? 'medium' : role === 'mascot' ? 'light' : 'none';
+}
+
+/** Chất giọng theo vai gửi kèm TTS (speechMetadata.style): mô tả rõ tuổi để model đọc như trẻ em thật, không như người lớn */
+export function voiceTimbre(role: string, voice: string): string {
+  const female = VOICES.find((v) => v.id === voice)?.gender === 'female';
+  if (role === 'child') {
+    return female
+      ? 'voice of a real 7-year-old Vietnamese girl: high, small and bright, clear, innocent and playful childlike voice, ' +
+          'lively natural intonation like a child chatting in class; never sounds like an adult woman'
+      : 'voice of a real 7-year-old Vietnamese boy: high young child voice, clear, energetic, innocent and playful, ' +
+          'lively natural intonation like a child chatting in class; never sounds like an adult man';
+  }
+  if (role === 'mascot') return 'cute cartoon mascot voice: bright, bouncy, playful and warm, very expressive, like a beloved kids TV host';
+  if (role === 'adult') return 'warm, kind and natural voice, speaking gently to young children, varied lively intonation, not reading monotonously';
+  return 'warm expressive storyteller for children, varied intonation, natural pauses, never monotone';
+}
+
+/**
  * Cảm xúc khi đọc. `style` gửi cho Gemini TTS qua trường có cấu trúc `speechMetadata.style`
  * (không nằm trong lời thoại nên model không đọc thành tiếng), luôn kèm chỉ định giọng miền Bắc.
  * Đã đo: không chỉ định thì mỗi request TTS ra giọng Bắc/Nam ngẫu nhiên.
  */
 export const EMOTIONS = {
-  cheerful: { label: 'Vui vẻ', style: 'cheerful and friendly' },
-  excited: { label: 'Hào hứng', style: 'excited and lively' },
-  curious: { label: 'Tò mò', style: 'curious, wondering' },
-  surprised: { label: 'Ngạc nhiên', style: 'surprised and amazed' },
-  explaining: { label: 'Giải thích', style: 'calm, clear and patient, like a kind teacher' },
-  warm: { label: 'Ấm áp', style: 'warm and gentle' },
-  proud: { label: 'Tự hào', style: 'proud and happy' },
-  thoughtful: { label: 'Suy nghĩ', style: 'thoughtful, slightly slower' },
+  cheerful: { label: 'Vui vẻ', style: 'cheerful and friendly, smiling while speaking' },
+  excited: { label: 'Hào hứng', style: 'excited and lively, energetic bright rising intonation' },
+  curious: { label: 'Tò mò', style: 'curious and wondering, questioning rising tone with small thoughtful pauses' },
+  surprised: { label: 'Ngạc nhiên', style: 'surprised and amazed, a little gasp of wonder' },
+  explaining: { label: 'Giải thích', style: 'calm, clear and patient like a kind teacher, gently stressing the key words' },
+  warm: { label: 'Ấm áp', style: 'warm, soft and caring' },
+  proud: { label: 'Tự hào', style: 'proud and happy, beaming' },
+  thoughtful: { label: 'Suy nghĩ', style: 'thoughtful, slightly slower, pondering' },
 } as const;
 export type Emotion = keyof typeof EMOTIONS;
 export const EMOTION_IDS = Object.keys(EMOTIONS) as [Emotion, ...Emotion[]];
@@ -42,6 +74,28 @@ export const slug = z
 export const MAX_MATERIALS = 5;
 export const MAX_CHOSEN_CHARACTERS = 3;
 export const MAX_CHOSEN_BACKGROUNDS = 4;
+
+/**
+ * Phong cách vẽ có sẵn. `flat` là mặc định (nhân vật, bối cảnh trong thư viện vẽ theo phong cách này); phong cách khác
+ * vẽ nhân vật/bối cảnh riêng (mã có hậu tố) để không lẫn phong cách trong một video.
+ */
+export const ART_STYLES = {
+  flat: { label: 'Hoạt hình 2D hiện đại', hint: 'Nét gọn, màu tươi, đổ bóng mềm' },
+  '3d': { label: 'Hoạt hình 3D mềm', hint: 'Khối tròn, ánh sáng điện ảnh' },
+  storybook: { label: 'Tranh truyện màu nước', hint: 'Màu nước, chì màu, ấm áp' },
+  papercut: { label: 'Giấy cắt thủ công', hint: 'Lớp giấy màu, bóng đổ nhẹ' },
+} as const;
+export type ArtStyle = keyof typeof ART_STYLES;
+export const ART_STYLE_IDS = Object.keys(ART_STYLES) as [ArtStyle, ...ArtStyle[]];
+
+/** Mức chuyển động của nhân vật và hình minh hoạ */
+export const MOTION_LEVELS = {
+  subtle: { label: 'Nhẹ nhàng', k: 0.5 },
+  normal: { label: 'Vừa phải', k: 1 },
+  lively: { label: 'Sinh động', k: 1.6 },
+} as const;
+export type MotionLevel = keyof typeof MOTION_LEVELS;
+export const MOTION_LEVEL_IDS = Object.keys(MOTION_LEVELS) as [MotionLevel, ...MotionLevel[]];
 
 export const LessonIdeaSchema = z.object({
   topic: z.string().min(3).max(500),
@@ -65,6 +119,10 @@ export const LessonIdeaSchema = z.object({
   newBackgrounds: z.boolean().optional(),
   /** Ảnh tham chiếu phong cách: nhân vật, bối cảnh mới vẽ theo phong cách này */
   styleRefId: z.string().uuid().optional(),
+  /** Phong cách vẽ có sẵn (bỏ qua khi có ảnh tham chiếu phong cách) */
+  artStyle: z.enum(ART_STYLE_IDS).optional(),
+  /** Mức chuyển động: nhân vật thở, lắc lư, gật đầu; hình minh hoạ nhún nhảy */
+  motion: z.enum(MOTION_LEVEL_IDS).optional(),
 });
 export type LessonIdea = z.infer<typeof LessonIdeaSchema>;
 
@@ -79,6 +137,10 @@ export const ScriptCharacterSchema = z.object({
     .string()
     .describe('Mô tả ngoại hình chi tiết bằng tiếng Anh để vẽ nhân vật (tuổi, tóc, trang phục, màu sắc). Bỏ trống với narrator.'),
   voice: z.enum(VOICE_IDS),
+  youth: z
+    .enum(VOICE_YOUTH_IDS)
+    .optional()
+    .describe('Độ trẻ của giọng; bỏ trống để hệ thống tự chọn theo vai'),
 });
 export type ScriptCharacter = z.infer<typeof ScriptCharacterSchema>;
 
@@ -89,6 +151,14 @@ export const ScriptLineSchema = z.object({
     .string()
     .describe('Câu thoại để đọc: viết số, ký hiệu toán học thành chữ tiếng Việt (0 → "không", + → "cộng")'),
   emotion: z.enum(EMOTION_IDS).describe('Cảm xúc khi đọc câu này'),
+  delivery: z
+    .string()
+    .max(160)
+    .optional()
+    .describe(
+      'Chỉ dẫn diễn xuất ngắn bằng tiếng Anh cho giọng đọc câu này: ngữ điệu, nhịp, nhấn chữ nào, kéo dài tiếng cảm thán. ' +
+        'Ví dụ "gasp, stretch the first word, rising tone of wonder", "whisper like sharing a secret", "slow and proud on the last word"',
+    ),
   visualNote: z.string().describe('Gợi ý hình ảnh cho câu này: đang chỉ vào vật gì, cần phóng to vào đâu'),
 });
 export type ScriptLine = z.infer<typeof ScriptLineSchema>;
@@ -119,8 +189,66 @@ export type LessonScript = z.infer<typeof LessonScriptSchema>;
 export const POSES = ['idle', 'talk', 'explain', 'idea', 'point', 'cheer'] as const;
 export type Pose = (typeof POSES)[number];
 
+/** Biểu cảm vùng mắt + lông mày chồng lên mặt (miệng vẫn nhép theo lời) */
+export const EXPRESSIONS = ['happy', 'surprised', 'thinking'] as const;
+export type Expression = (typeof EXPRESSIONS)[number];
+
+/** Biểu cảm của người nói theo cảm xúc câu thoại */
+export const EXPRESSION_OF_EMOTION: Partial<Record<Emotion, Expression>> = {
+  excited: 'happy',
+  proud: 'happy',
+  surprised: 'surprised',
+  curious: 'thinking',
+  thoughtful: 'thinking',
+};
+
+
 export const FRAMINGS = ['wide', 'two-shot', 'medium', 'close-up', 'object'] as const;
 export type Framing = (typeof FRAMINGS)[number];
+
+/** Quan hệ vị trí giữa hai vật minh hoạ trong cùng một shot, kèm từ tiếng Việt để ghép chú thích */
+export const RELATIONS = {
+  on: 'trên',
+  above: 'phía trên',
+  under: 'dưới',
+  in: 'trong',
+  'next-to': 'cạnh',
+  'left-of': 'bên trái',
+  'right-of': 'bên phải',
+  behind: 'sau',
+  'in-front-of': 'trước',
+} as const;
+export type Relation = keyof typeof RELATIONS;
+export const RELATION_IDS = Object.keys(RELATIONS) as [Relation, ...Relation[]];
+
+/** Số vật minh hoạ tối đa trong một shot */
+export const MAX_SHOT_ILLUSTRATIONS = 4;
+
+export const ShotIllustrationSchema = z.object({
+  key: slug.describe('Key slug tiếng Anh của hình, ví dụ "bicycle-wheel"; cùng sự vật thì dùng lại cùng key'),
+  description: z.string().describe('Mô tả tiếng Anh để vẽ MỘT sự vật đơn lẻ, ví dụ "a round black bicycle wheel with spokes"'),
+  caption: z.string().max(24).describe('Chú thích tiếng Việt ngắn, ví dụ "Bánh xe"'),
+  cue: z.string().describe('Cụm từ NGUYÊN VĂN trong câu thoại, lúc đọc tới đó thì hình hiện ra, ví dụ "bánh xe"'),
+  count: z
+    .number()
+    .int()
+    .min(1)
+    .max(10)
+    .optional()
+    .describe('Số lượng khi câu thoại đếm/nói "có N vật": hình vẫn vẽ MỘT vật, video tự nhân đúng N cái và hiện theo nhịp đếm'),
+  relation: z
+    .object({
+      to: z.string().describe('key của vật làm mốc trong CÙNG shot (vật mốc không có relation)'),
+      where: z.enum(RELATION_IDS).describe('Vị trí của vật này so với vật mốc: on = nằm/đậu trên, under = ở dưới gầm, in = ở trong...'),
+    })
+    .optional()
+    .describe('Khi câu thoại nói vị trí của vật này so với một vật khác ("chim sẻ TRÊN cây", "mèo DƯỚI bàn")'),
+  size: z
+    .enum(['small', 'medium', 'large'])
+    .optional()
+    .describe('Cỡ tương đối giữa các vật trong shot: cây, bàn, tủ = large; mèo, ghế = medium; chim, bóng, quả = small'),
+});
+export type ShotIllustration = z.infer<typeof ShotIllustrationSchema>;
 
 export const ShotSchema = z.object({
   lineIndex: z.number().int().min(0),
@@ -157,25 +285,24 @@ export const ShotSchema = z.object({
     .enum(SFX_IDS)
     .optional()
     .describe('Hiệu ứng âm thanh khi bắt đầu câu; chỉ dùng khi thật sự hợp (trả lời đúng → ding, kết luận → tada)'),
-  illustration: z
-    .object({
-      key: slug.describe('Key slug tiếng Anh của hình, ví dụ "bicycle-wheel"; cùng sự vật thì dùng lại cùng key'),
-      description: z.string().describe('Mô tả tiếng Anh để vẽ MỘT sự vật đơn lẻ, ví dụ "a round black bicycle wheel with spokes"'),
-      caption: z.string().max(24).describe('Chú thích tiếng Việt ngắn hiện dưới hình, ví dụ "Bánh xe"'),
-      cue: z.string().describe('Cụm từ NGUYÊN VĂN trong câu thoại, lúc đọc tới đó thì hình hiện ra, ví dụ "bánh xe"'),
-      count: z
-        .number()
-        .int()
-        .min(1)
-        .max(10)
-        .optional()
-        .describe('Số lượng khi câu thoại đếm/nói "có N vật": hình vẫn vẽ MỘT vật, video tự nhân đúng N cái và hiện theo nhịp đếm'),
-    })
+  illustrations: z
+    .array(ShotIllustrationSchema)
+    .max(MAX_SHOT_ILLUSTRATIONS)
     .optional()
-    .describe('Hình minh hoạ bật ra cạnh nhân vật khi câu thoại nhắc tới một sự vật/hình ảnh so sánh mà bối cảnh không có'),
+    .describe(
+      'Hình minh hoạ bật ra cạnh nhân vật khi lời thoại nhắc tới sự vật/con vật/hình ảnh so sánh mà bối cảnh không có. ' +
+        'Câu nhắc nhiều vật thì có ĐỦ từng vật, mỗi vật một phần tử, vị trí giữa các vật ghi bằng relation',
+    ),
 });
-export type Shot = z.infer<typeof ShotSchema>;
-export type ShotIllustration = NonNullable<Shot['illustration']>;
+export type Shot = z.infer<typeof ShotSchema> & {
+  /** Storyboard cũ: một hình minh hoạ mỗi shot (đọc qua shotIllustrations) */
+  illustration?: ShotIllustration;
+};
+
+/** Các hình minh hoạ của một shot (đọc được cả storyboard cũ chỉ có một hình) */
+export function shotIllustrations(shot: Shot): ShotIllustration[] {
+  return shot.illustrations ?? (shot.illustration ? [shot.illustration] : []);
+}
 
 export const StoryboardSceneSchema = z.object({
   sectionIndex: z.number().int().min(0),
@@ -204,8 +331,11 @@ export const StoryboardSchema = z.object({
   backgrounds: z.array(StoryboardBackgroundSchema).min(1),
   scenes: z.array(StoryboardSceneSchema).min(1),
 });
-/** `v` do hệ thống gắn sau khi kiểm tra; storyboard kiểu cũ (không có v) sẽ được dàn dựng lại. */
-export type Storyboard = z.infer<typeof StoryboardSchema> & { v?: number };
+/**
+ * `v` do hệ thống gắn sau khi kiểm tra; storyboard kiểu cũ (không có v) sẽ được dàn dựng lại.
+ * `sections`: dấu vân tay nội dung từng section lúc dàn dựng — kịch bản sửa sau đó thì chỉ dàn dựng lại section đã đổi.
+ */
+export type Storyboard = z.infer<typeof StoryboardSchema> & { v?: number; sections?: string[] };
 export const STORYBOARD_VERSION = 3;
 
 // ---------------------------------------------------------------------------
@@ -270,6 +400,8 @@ export interface Lesson {
   progress: number;
   error: string | null;
   script: LessonScript | null;
+  /** Kịch bản ngay trước lần AI sửa theo góp ý gần nhất (để tô màu câu đã đổi và hoàn tác từng câu) */
+  scriptPrevious: LessonScript | null;
   storyboard: Storyboard | null;
   output: RenderOutput | null;
   qa: QaReport | null;
@@ -309,6 +441,8 @@ export interface Asset {
     height?: number;
     voice?: string;
     role?: string;
+    /** character: độ trẻ của giọng (VoiceYouth) */
+    youth?: string;
     /** character: hướng nhìn; front = chính diện (mascot tải lên), mặc định nhìn 3/4 sang phải */
     facing?: 'right' | 'front';
     /** character: rig 0 + ready = ảnh source đã là dáng đứng trên nền magenta, chỉ cần dựng các dáng còn lại */

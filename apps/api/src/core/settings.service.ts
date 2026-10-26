@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { SystemSettings } from '@edu/shared';
 import { config } from './config.js';
 import { DbService } from './db.service.js';
+import { geminiPlatform } from './gemini-platform.js';
 import { decrypt, encrypt } from './secure.js';
 
 const GEMINI_KEY = 'gemini_api_key';
@@ -55,6 +56,7 @@ export class SettingsService {
     );
     const fromDb = source === 'db';
     return {
+      platform: geminiPlatform(),
       gemini: {
         configured: !!key,
         source,

@@ -1,13 +1,14 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import sharp from 'sharp';
 import { z } from 'zod';
-import type { Asset, Box, LessonScript, ScriptCharacter, ShotIllustration, Storyboard, StoryboardBackground } from '@edu/shared';
+import { EXPRESSIONS, shotIllustrations, type Asset, type Box, type LessonScript, type ScriptCharacter, type ShotIllustration, type Storyboard, type StoryboardBackground } from '@edu/shared';
 import { AssetsRepo } from '../core/assets.repo.js';
 import { GeminiService } from '../core/gemini.service.js';
 import { StorageService } from '../core/storage.service.js';
-import { cutoutVariants } from './chroma.js';
+import { cutoutVariants, keyColorFor } from './chroma.js';
 import { composeRig } from './rig.js';
 import {
+  EXPRESSION_EDITS,
   MOUTH_OPEN_PROMPT,
   POSE_EDITS,
   TURN_PROMPT,
@@ -31,20 +32,27 @@ const VerifySchema = z.object({ matches: z.boolean(), problems: z.array(z.string
  * 4: tìm miệng/mắt theo vị trí mắt, bỏ viền đổi màu (mascot trong suốt) và mảnh tay rời — chỉ ghép lại từ ảnh gốc đã lưu,
  *    không vẽ thêm.
  * 5: lưu vị trí miệng (mouthY) để camera trung/cận cảnh luôn thấy miệng nhép.
+ * 6: thêm biểu cảm vùng mắt (vui, ngạc nhiên, suy nghĩ) — nhân vật cũ chỉ vẽ thêm 3 ảnh biểu cảm.
  */
-export const RIG_VERSION = 5;
+export const RIG_VERSION = 6;
 /** Dáng tay vẽ bằng cách sửa ảnh đứng; ghép lên ảnh đứng nên đầu/thân giữ nguyên */
 const GESTURES = ['talk', 'explain', 'idea', 'point', 'cheer'] as const;
 /** Ảnh gốc cần cho một bộ dáng (cùng khung cắt) */
-const RIG_SOURCES = ['idle', 'idleOpen', 'blink', ...GESTURES] as const;
+const RIG_SOURCES = ['idle', 'idleOpen', 'blink', ...GESTURES, ...EXPRESSIONS] as const;
 type RigSource = (typeof RIG_SOURCES)[number];
 
-/** Ảnh tham chiếu phong cách của bài: gửi kèm khi vẽ nhân vật, bối cảnh MỚI */
+/**
+ * Phong cách vẽ của bài: ảnh tham chiếu phong cách (gửi kèm khi vẽ nhân vật, bối cảnh MỚI) hoặc phong cách có sẵn
+ * (`art`: lời mô tả). `tag` gắn vào mã nhân vật/bối cảnh/hình minh hoạ để không lẫn với bản phong cách khác.
+ */
 export interface StyleRef {
-  image: Buffer;
-  mime: string;
+  image?: Buffer;
+  art?: string;
   tag: string;
 }
+
+const styleArg = (style: StyleRef | null) => (style?.image ? true : (style?.art ?? false));
+const styleImages = (style: StyleRef | null) => (style?.image ? [style.image] : undefined);
 
 export interface ProducedAssets {
   characters: Record<string, Asset>;
@@ -74,7 +82,7 @@ export class AssetsStep {
     const visual = script.characters.filter((c) => c.role !== 'narrator');
     const illSpecs = new Map<string, ShotIllustration>();
     for (const scene of board.scenes)
-      for (const shot of scene.shots) if (shot.illustration && !illSpecs.has(shot.illustration.key)) illSpecs.set(shot.illustration.key, shot.illustration);
+      for (const shot of scene.shots) for (const ill of shotIllustrations(shot)) if (!illSpecs.has(ill.key)) illSpecs.set(ill.key, ill);
     const total = visual.length + board.backgrounds.length + illSpecs.size;
     let done = 0;
     const tick = async (msg: string) => {
@@ -136,12 +144,14 @@ export class AssetsStep {
     if (lib) return lib;
     try {
       this.logger.log(`Vẽ hình minh hoạ: ${key}`);
-      const drawn = await this.gemini.image(`Vẽ hình minh hoạ ${spec.caption}`, illustrationPrompt(spec.description, !!style), {
-        aspectRatio: '1:1',
-        imageSize: '1K',
-        images: style ? [style.image] : undefined,
-      });
-      const cut = await cutoutVariants([await sharp(drawn).png().toBuffer()], 900);
+      // Nền tách khác màu vật (lợn hồng, nho tím vẽ trên nền xanh) để vật giữ đúng màu thật
+      const keyColor = keyColorFor(spec.description);
+      const drawn = await this.gemini.image(
+        `Vẽ hình minh hoạ ${spec.caption}`,
+        illustrationPrompt(spec.description, styleArg(style), keyColor),
+        { aspectRatio: '1:1', imageSize: '1K', images: styleImages(style) },
+      );
+      const cut = await cutoutVariants([await sharp(drawn).png().toBuffer()], 900, keyColor);
       const image = await this.storage.put(`illustrations/${key}/${Date.now()}/image.png`, cut.images[0]);
       return await this.repo.upsert({
         kind: 'illustration',
@@ -180,12 +190,16 @@ export class AssetsStep {
     if (existing?.meta.rig === RIG_VERSION) return existing;
 
     const png = (b: Buffer) => sharp(b).png().toBuffer();
-    const opts = (images?: Buffer[]) => ({ aspectRatio: '3:4', images });
+    // Nhân vật dùng lâu dài: mọi ảnh của bộ dáng vẽ bằng model chất lượng cao, cùng cỡ để ghép khớp nhau
+    const opts = (images?: Buffer[]) => ({ aspectRatio: '3:4', images, hq: true });
     const edit = async (label: string, prompt: string, from: Buffer) =>
       png(await this.gemini.image(`${label} ${c.name}`, prompt, opts([from])));
     const EDITS: Record<Exclude<RigSource, 'idle'>, [string, string]> = {
       idleOpen: ['Vẽ khẩu hình', MOUTH_OPEN_PROMPT],
       blink: ['Vẽ chớp mắt', POSE_EDITS.blink],
+      happy: ['Vẽ mắt cười', EXPRESSION_EDITS.happy],
+      surprised: ['Vẽ mắt ngạc nhiên', EXPRESSION_EDITS.surprised],
+      thinking: ['Vẽ mắt suy nghĩ', EXPRESSION_EDITS.thinking],
       talk: ['Vẽ dáng nói', POSE_EDITS.talk],
       explain: ['Vẽ dáng giải thích', POSE_EDITS.explain],
       idea: ['Vẽ dáng giơ ngón tay', POSE_EDITS.idea],
@@ -218,7 +232,7 @@ export class AssetsStep {
       } else {
         this.logger.log(`Vẽ nhân vật mới: ${c.id}`);
         sources.idle = await png(
-          await this.gemini.image(`Vẽ nhân vật ${c.name}`, characterPrompt(c.description, !!style), opts(style ? [style.image] : undefined)),
+          await this.gemini.image(`Vẽ nhân vật ${c.name}`, characterPrompt(c.description, styleArg(style)), opts(styleImages(style))),
         );
       }
       for (const k of RIG_SOURCES) if (k !== 'idle') delete sources[k];
@@ -234,7 +248,7 @@ export class AssetsStep {
         1800,
       );
       const images = Object.fromEntries(RIG_SOURCES.map((k, i) => [k, cut.images[i]]));
-      return { cut, rig: await composeRig(images, [...GESTURES]) };
+      return { cut, rig: await composeRig(images, [...GESTURES], [...EXPRESSIONS]) };
     };
     let { cut, rig } = await cutAndCompose();
     // Lần sửa ảnh không đổi tay (dáng gần như trùng ảnh đứng) thì vẽ lại dáng đó một lần
@@ -251,6 +265,7 @@ export class AssetsStep {
     for (const [k, b] of Object.entries(rig.poses)) files[k] = await this.storage.put(`${prefix}/${k}.png`, b);
     files.mouth = await this.storage.put(`${prefix}/mouth.png`, rig.mouth);
     files.blink = await this.storage.put(`${prefix}/blink.png`, rig.blink);
+    for (const [k, b] of Object.entries(rig.expressions)) files[`expr-${k}`] = await this.storage.put(`${prefix}/expr-${k}.png`, b);
     if (existing?.files.original) files.original = existing.files.original;
     return this.repo.upsert({
       kind: 'character',
@@ -263,6 +278,7 @@ export class AssetsStep {
         height: cut.height,
         voice: c.voice,
         role: c.role,
+        youth: c.youth,
         rig: RIG_VERSION,
         headTop: cut.tops[0],
         bodyCx: cut.centersX[0],
@@ -301,15 +317,15 @@ export class AssetsStep {
             this.storage
               .read(base.files.image)
               .then((src) => sharp(src).png().toBuffer())
-              .then((src) => this.gemini.image(`Vẽ biến thể bối cảnh ${b.key}`, prompt, { aspectRatio: '16:9', images: [src] })),
+              .then((src) => this.gemini.image(`Vẽ biến thể bối cảnh ${b.key}`, prompt, { aspectRatio: '16:9', images: [src], hq: true })),
             backgroundVariantPrompt(b.change || b.description, b.description),
             3,
             2,
           )
         : await this.drawVerified(
             b,
-            (prompt) => this.gemini.image(`Vẽ bối cảnh ${b.key}`, prompt, { aspectRatio: '16:9', images: style ? [style.image] : undefined }),
-            backgroundPrompt(b.description, b.objects, !!style),
+            (prompt) => this.gemini.image(`Vẽ bối cảnh ${b.key}`, prompt, { aspectRatio: '16:9', images: styleImages(style), hq: true }),
+            backgroundPrompt(b.description, b.objects, styleArg(style)),
             3,
           );
       if (problems.length) {

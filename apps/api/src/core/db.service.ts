@@ -52,6 +52,8 @@ alter table tts_cache add column if not exists level text;
 
 alter table lessons add column if not exists code text;
 alter table lessons add column if not exists audio jsonb;
+-- Kịch bản trước lần AI sửa theo góp ý (tô màu câu đã đổi, hoàn tác từng câu)
+alter table lessons add column if not exists script_previous jsonb;
 update lessons set code = substr(md5(random()::text || id::text), 1, 6) where code is null;
 create unique index if not exists lessons_code_idx on lessons (code);
 

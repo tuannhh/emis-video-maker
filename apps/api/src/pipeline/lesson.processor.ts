@@ -17,7 +17,7 @@ export class LessonProcessor extends WorkerHost {
     switch (job.name) {
       case 'script': {
         const data = job.data as ScriptJobData;
-        return this.pipeline.generateScript(data.lessonId, data.feedback);
+        return this.pipeline.generateScript(data.lessonId, data.feedback, data.scope);
       }
       case 'produce': {
         const data = job.data as ProduceJobData;

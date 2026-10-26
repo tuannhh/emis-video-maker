@@ -140,8 +140,8 @@ export const Scene: React.FC<Props> = ({ scene, characters, burnSubtitles }) => 
         }
 
         let illAt = { x: W / 2, y: H / 2 };
-        if (sh.illustration) {
-          const size = illustrationSize(sh.illustration);
+        if (sh.illustrations.length) {
+          const size = illustrationSize(sh.illustrations);
           const sp = placed.get(sh.speaker);
           const spX = sp ? t.tx + t.s * sp.x : W / 2;
           // Hình hiện ở phía đối diện người nói (chỗ trống trong khung), cao ngang ngực
@@ -234,8 +234,8 @@ export const Scene: React.FC<Props> = ({ scene, characters, burnSubtitles }) => 
         />
       ) : null}
 
-      {shot.illustration ? (
-        <Illustration ill={shot.illustration} at={stage.illAt} local={local} duration={shot.durationInFrames} />
+      {shot.illustrations.length ? (
+        <Illustration items={shot.illustrations} at={stage.illAt} local={local} duration={shot.durationInFrames} />
       ) : null}
 
       {showSubtitle ? <Subtitle text={shot.text} speaker={speakerName} localFrame={audioLocal} /> : null}

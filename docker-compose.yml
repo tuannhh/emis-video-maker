@@ -15,8 +15,11 @@ x-backend: &backend
     FILES_INTERNAL_URL: http://api:4100
     API_PORT: "4100"
     WEB_ORIGIN: http://localhost:3100
+    # File khoá service account Agent Platform (GEMINI_KEY_FILE trong .env, nằm ngoài thư mục mã nguồn)
+    GOOGLE_APPLICATION_CREDENTIALS: ${GEMINI_KEY_FILE:+/run/secrets/gcp-agent-platform.json}
   volumes:
     - storage:/data/storage
+    - ${GEMINI_KEY_FILE:-./docker/no-gemini-key.json}:/run/secrets/gcp-agent-platform.json:ro
   depends_on:
     postgres:
       condition: service_healthy

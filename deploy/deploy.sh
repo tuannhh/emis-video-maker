@@ -5,6 +5,11 @@
 #
 # Cần làm một lần trước (xem docs/deploy-cloud-run.md): Cloud SQL, bucket, Artifact Registry, service account,
 # và 3 secret: emis-database-url, emis-app-secret, emis-admin-password. Script không chứa bí mật nào.
+#
+# Gemini gọi qua Gemini Enterprise Agent Platform. Nếu có secret GEMINI_KEY_SECRET (mặc định emis-gemini-sa-key,
+# nội dung là file khoá JSON của service account) thì file được gắn chỉ đọc vào /run/secrets; không có thì dùng
+# chính service account của Cloud Run (cần role roles/aiplatform.user). Dịch vụ Agent Platform chưa có (nhạc nền Lyria 3.5)
+# dùng Gemini API key phụ admin nhập trên trang Cài đặt.
 set -euo pipefail
 # Git Bash trên Windows tự đổi "/data/storage" trong tham số volume thành đường dẫn Windows: bỏ qua tham số đó
 export MSYS2_ARG_CONV_EXCL="volume="
@@ -17,6 +22,9 @@ BUCKET="${BUCKET:-$PROJECT-emis-video}"
 SA="emis-video-sa@$PROJECT.iam.gserviceaccount.com"
 REPO="$REGION-docker.pkg.dev/$PROJECT/emis-video"
 TAG="${TAG:-$(git rev-parse --short HEAD)-$(date +%Y%m%d%H%M)}"
+GEMINI_LOCATION="${GEMINI_LOCATION:-global}"
+GEMINI_KEY_SECRET="${GEMINI_KEY_SECRET:-emis-gemini-sa-key}"
+KEY_PATH=/run/secrets/gcp-agent-platform.json
 
 NUMBER=$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')
 API_URL="https://emis-video-api-$NUMBER.$REGION.run.app"
@@ -29,7 +37,7 @@ if [ "${SKIP_BUILD:-}" != "1" ]; then
 fi
 
 # Giá USD / 1 triệu token (bảng giá Standard, ai.google.dev) để báo cáo chi phí
-DEFAULT_PRICING='{"gemini-3.8-flash":{"input":0.75,"output":3.75},"gemini-3.1-flash-image":{"input":0.5,"output":3,"output_image":60},"gemini-3.8-flash-tts":{"input":0.5,"output":9,"output_audio":9},"lyria-3.5":{"request":0.08,"input":0,"output":0}}'
+DEFAULT_PRICING='{"gemini-3.8-flash":{"input":0.75,"output":3.75},"gemini-3.1-flash-lite-image":{"input":0.25,"output":1.5,"output_image":30},"gemini-3.1-flash-image":{"input":0.5,"output":3,"output_image":60},"gemini-3.8-flash-tts":{"input":0.5,"output":9,"output_audio":9},"lyria-002":{"request":0.06,"input":0,"output":0},"lyria-3.5":{"request":0.08,"input":0,"output":0}}'
 PRICING="${GEMINI_PRICING:-$DEFAULT_PRICING}"
 
 # Biến môi trường chung (không bí mật). GEMINI_PRICING có dấu phẩy nên dùng file YAML.
@@ -48,7 +56,19 @@ WEB_ORIGIN: "$WEB_URL"
 COOKIE_SECURE: "true"
 ADMIN_EMAIL: "$ADMIN_EMAIL"
 GEMINI_PRICING: '$PRICING'
+GEMINI_PROVIDER: agent-platform
+GOOGLE_CLOUD_PROJECT: "$PROJECT"
+GOOGLE_CLOUD_LOCATION: "$GEMINI_LOCATION"
 EOF
+
+SECRETS="DATABASE_URL=emis-database-url:latest,APP_SECRET=emis-app-secret:latest"
+if gcloud secrets describe "$GEMINI_KEY_SECRET" --project "$PROJECT" >/dev/null 2>&1; then
+  echo "==> Gemini: file khoá service account từ secret $GEMINI_KEY_SECRET"
+  echo "GOOGLE_APPLICATION_CREDENTIALS: $KEY_PATH" >>"$ENV_FILE"
+  SECRETS="$SECRETS,$KEY_PATH=$GEMINI_KEY_SECRET:latest"
+else
+  echo "==> Gemini: dùng service account của Cloud Run ($SA)"
+fi
 
 COMMON=(
   --project "$PROJECT" --region "$REGION" --service-account "$SA"
@@ -64,7 +84,7 @@ echo "==> Cloud Run Job: worker sản xuất video (mỗi việc một lần ch�
 JOB_ARGS=(
   --image "$REPO/backend:$TAG" --command node --args dist/job.js
   --cpu 4 --memory 8Gi --task-timeout 3600 --max-retries 0 --tasks 1
-  --set-secrets "DATABASE_URL=emis-database-url:latest,APP_SECRET=emis-app-secret:latest"
+  --set-secrets "$SECRETS"
   "${COMMON[@]}"
 )
 if exists jobs emis-video-worker; then
@@ -78,7 +98,7 @@ API_ARGS=(
   --image "$REPO/backend:$TAG" --command node --args dist/main.js
   --port 4100 --cpu 1 --memory 1Gi --min-instances 0 --max-instances 4 --timeout 300
   --execution-environment gen2 --allow-unauthenticated
-  --set-secrets "DATABASE_URL=emis-database-url:latest,APP_SECRET=emis-app-secret:latest,ADMIN_PASSWORD=emis-admin-password:latest"
+  --set-secrets "$SECRETS,ADMIN_PASSWORD=emis-admin-password:latest"
   "${COMMON[@]}"
 )
 if exists services emis-video-api; then API_ARGS+=("${CLEAR[@]}"); fi

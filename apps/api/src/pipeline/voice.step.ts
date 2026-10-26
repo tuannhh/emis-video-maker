@@ -1,17 +1,26 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
-import { EMOTIONS, normalizeForTts, type Emotion, type LessonScript } from '@edu/shared';
+import {
+  EMOTIONS,
+  VOICE_YOUTH,
+  defaultYouth,
+  normalizeForTts,
+  voiceTimbre,
+  type Emotion,
+  type LessonScript,
+  type ScriptCharacter,
+} from '@edu/shared';
 import { config } from '../core/config.js';
 import { DbService } from '../core/db.service.js';
 import { GeminiService } from '../core/gemini.service.js';
 import { StorageService } from '../core/storage.service.js';
-import { analyzeSpeech, chooseCuts, findGaps, parseWav, sliceByCuts } from './audio.js';
+import { analyzeSpeech, chooseCuts, findGaps, parseWav, sliceByCuts, youngerVoice } from './audio.js';
 import { ACCENT_PROMPT, TRANSCRIBE_PROMPT } from './prompts.js';
 import { mapLimit, sha1, type Progress } from './util.js';
 
 export const FPS = 30;
 /** Tăng khi đổi cách tạo giọng để không dùng lại audio cũ trong cache */
-const TTS_VERSION = 'v5-batch';
+const TTS_VERSION = 'v6-child';
 /**
  * Đã đo với gemini-3.8-flash-tts: không chỉ định thì mỗi request ra giọng Bắc hoặc Nam ngẫu nhiên
  * (đọc từng câu riêng: 2/6 câu giọng Nam). Chỉ định qua speechMetadata.style: 12/12 giọng Bắc, không bị đọc thành lời.
@@ -42,7 +51,20 @@ interface Job {
   voice: string;
   text: string;
   style: string;
+  /** Hệ số nâng cao độ + âm sắc sau khi đọc (1 = giữ nguyên) */
+  youth: number;
   hash: string;
+}
+
+/** Chỉ dẫn giọng cho một câu: giọng Bắc + chất giọng theo vai + cảm xúc + chỉ dẫn diễn xuất riêng của câu */
+export function speechStyle(c: Pick<ScriptCharacter, 'role' | 'voice'> | undefined, emotion: Emotion, delivery?: string) {
+  return [ACCENT, voiceTimbre(c?.role ?? 'narrator', c?.voice ?? 'Kore'), EMOTIONS[emotion]?.style ?? 'cheerful and friendly', delivery?.trim()]
+    .filter(Boolean)
+    .join('; ');
+}
+
+export function youthFactor(c: Pick<ScriptCharacter, 'role' | 'youth'> | undefined) {
+  return VOICE_YOUTH[c?.youth ?? defaultYouth(c?.role ?? 'narrator')].factor;
 }
 
 @Injectable()
@@ -56,19 +78,21 @@ export class VoiceStep {
   ) {}
 
   async run(script: LessonScript, progress: Progress): Promise<ProducedVoices> {
-    const voiceOf = new Map(script.characters.map((c) => [c.id, c.voice]));
+    const byId = new Map(script.characters.map((c) => [c.id, c]));
     const host = script.characters.find((c) => c.role !== 'narrator') ?? null;
 
     const jobs: Job[] = [];
-    const add = (key: string, voice: string, text: string, emotion: Emotion) => {
-      const style = `${ACCENT}; ${EMOTIONS[emotion]?.style ?? 'cheerful and friendly'}`;
-      jobs.push({ key, voice, text, style, hash: sha1(config.gemini.ttsModel, TTS_VERSION, voice, style, text) });
+    const add = (key: string, c: ScriptCharacter | undefined, text: string, emotion: Emotion, delivery?: string) => {
+      const voice = c?.voice ?? 'Kore';
+      const style = speechStyle(c, emotion, delivery);
+      const youth = youthFactor(c);
+      jobs.push({ key, voice, text, style, youth, hash: sha1(config.gemini.ttsModel, TTS_VERSION, voice, style, String(youth), text) });
     };
     if (host) {
-      add('intro', host.voice, normalizeForTts(`Xin chào các bạn! Hôm nay chúng mình cùng học bài: ${script.title}.`), 'excited');
+      add('intro', host, normalizeForTts(`Xin chào các bạn! Hôm nay chúng mình cùng học bài: ${script.title}.`), 'excited', 'bright, welcoming greeting');
     }
     script.sections.forEach((s, si) =>
-      s.lines.forEach((l, li) => add(`${si}:${li}`, voiceOf.get(l.speaker) ?? 'Kore', l.ttsText, l.emotion)),
+      s.lines.forEach((l, li) => add(`${si}:${li}`, byId.get(l.speaker), l.ttsText, l.emotion, l.delivery)),
     );
 
     const clips = new Map<string, VoiceClip>();
@@ -125,7 +149,9 @@ export class VoiceStep {
     return { fileKey: row.file_key, durationMs: row.duration_ms, mouth: row.mouth, level: row.level };
   }
 
-  private async save(job: Job, wav: Buffer): Promise<VoiceClip> {
+  private async save(job: Job, raw: Buffer): Promise<VoiceClip> {
+    // Giọng trẻ em: nâng cao độ + âm sắc sau khi đã cắt và kiểm tra lời đọc
+    const wav = youngerVoice(raw, job.youth);
     const { durationMs, mouth, level } = analyzeSpeech(wav, FPS);
     const fileKey = await this.storage.put(`audio/${job.hash}.wav`, wav);
     await this.db.query(

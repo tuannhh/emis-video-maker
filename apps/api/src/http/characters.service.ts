@@ -116,7 +116,7 @@ export class CharactersService {
           `mascot (nếu ảnh có ghi tên thì dùng tên đó); role = "mascot"; voice = giọng hợp nhất:\n` +
           VOICES.map((v) => `- ${v.id}: ${v.tone} (hợp với ${v.suits})`).join('\n');
         [drawn, design] = await Promise.all([
-          this.gemini.image('Chuẩn bị mascot', MASCOT_PREP_PROMPT, { aspectRatio: '3:4', images: [img] }),
+          this.gemini.image('Chuẩn bị mascot', MASCOT_PREP_PROMPT, { aspectRatio: '3:4', images: [img], hq: true }),
           this.gemini.json('Mô tả mascot', DesignSchema, [inline(img), { text: describe }], { temperature: 0.2 }),
         ]);
       } else {
@@ -135,6 +135,7 @@ export class CharactersService {
         drawn = await this.gemini.image(`Vẽ nhân vật ${design.suggestedName}`, prompt, {
           aspectRatio: '3:4',
           images: [...(ref ? [ref] : []), ...(styleImg ? [styleImg] : [])],
+          hq: true,
         });
       }
 

@@ -12,6 +12,10 @@ import {
   type RenderShot,
   type SfxId,
   type Storyboard,
+  type MotionLevel,
+  EXPRESSIONS,
+  MOTION_LEVELS,
+  shotIllustrations,
 } from '@edu/shared';
 import type { ProducedAssets } from './assets.step.js';
 import { FPS, type ProducedVoices } from './voice.step.js';
@@ -46,6 +50,8 @@ export interface TimelineInput {
   voices: ProducedVoices;
   url: (key: string) => string;
   burnSubtitles: boolean;
+  /** Mức chuyển động của nhân vật và hình minh hoạ */
+  motion?: MotionLevel;
   audio: AudioSettings;
   sfxKeys: Record<SfxId, string>;
   music: Asset | null;
@@ -207,6 +213,9 @@ export function buildRenderProps(input: TimelineInput): { props: LessonRenderPro
       layered,
       mouth: layered ? url(f.mouth) : null,
       blink: f.blink ? url(f.blink) : null,
+      expressions: Object.fromEntries(
+        EXPRESSIONS.filter((e) => layered && f[`expr-${e}`]).map((e) => [e, url(f[`expr-${e}`])]),
+      ),
       width: a.meta.width ?? 600,
       height: a.meta.height ?? 1400,
       headTop: a.meta.headTop ?? 0.01,
@@ -296,11 +305,12 @@ export function buildRenderProps(input: TimelineInput): { props: LessonRenderPro
         }
       }
       if (shot.sfx) addSfx(shot.sfx, absAudio, 0.8);
-      const ill = shot.illustration ? assets.illustrations[shot.illustration.key] : undefined;
-      let illustration: RenderShot['illustration'] = null;
-      if (ill && shot.illustration) {
-        const count = shot.illustration.count ?? 1;
-        let start = cueTime(line.text, shot.illustration.cue, audioOffset, audioFrames);
+      // Hình minh hoạ: mỗi vật hiện đúng lúc lời thoại nhắc tới; vật bị thiếu (vẽ lỗi) thì bỏ, vật bám vào nó thành vật độc lập
+      const specs = shotIllustrations(shot).filter((sp) => assets.illustrations[sp.key]);
+      const illustrations: RenderShot['illustrations'] = specs.map((sp) => {
+        const ill = assets.illustrations[sp.key];
+        const count = sp.count ?? 1;
+        let start = cueTime(line.text, sp.cue, audioOffset, audioFrames);
         const countStarts: number[] = [];
         if (count > 1) {
           // Hiện từng vật đúng lúc đọc "một, hai, ba..."; câu không đếm từng tiếng thì hiện nhanh liên tiếp
@@ -314,18 +324,24 @@ export function buildRenderProps(input: TimelineInput): { props: LessonRenderPro
             countStarts.push(Math.max(spoken[i] ?? prev + 4, i ? prev + 3 : start));
           }
         }
-        illustration = {
+        const to = sp.relation ? specs.findIndex((o) => o.key === sp.relation!.to && !o.relation) : -1;
+        return {
           src: url(ill.files.image),
-          caption: shot.illustration.caption,
+          caption: sp.caption,
           width: ill.meta.width ?? 900,
           height: ill.meta.height ?? 900,
-          start,
+          // Hiện kịp xem trước khi hết shot
+          start: Math.min(start, Math.max(audioOffset, durationInFrames - 30)),
           count,
           countStarts,
+          relation: to >= 0 && sp.relation ? { to, where: sp.relation.where } : null,
+          size: sp.size ?? 'medium',
         };
-        addSfx('pop', sceneFrom + from + start, 0.6, 1.1);
-        countStarts.slice(1).forEach((f, i) => addSfx('pop', sceneFrom + from + f, 0.4, 1 + i * 0.04));
-      }
+      });
+      illustrations.forEach((it, k) => {
+        addSfx('pop', sceneFrom + from + it.start, 0.6, 1.1 + k * 0.06);
+        it.countStarts.slice(1).forEach((f, i) => addSfx('pop', sceneFrom + from + f, 0.4, 1 + i * 0.04));
+      });
       if (shot.reaction === 'hop' && listener) {
         addSfx('boing', sceneFrom + from + audioOffset + Math.min(20, Math.round(audioFrames * 0.3)) + 4, 0.35);
       }
@@ -334,6 +350,7 @@ export function buildRenderProps(input: TimelineInput): { props: LessonRenderPro
         from,
         durationInFrames,
         speaker: line.speaker,
+        emotion: line.emotion,
         text: line.text,
         audioSrc: clip ? url(clip.fileKey) : null,
         audioOffset,
@@ -349,7 +366,7 @@ export function buildRenderProps(input: TimelineInput): { props: LessonRenderPro
         reaction: listener ? shot.reaction : 'none',
         listener,
         overlay,
-        illustration,
+        illustrations,
       };
     });
 
@@ -399,6 +416,7 @@ export function buildRenderProps(input: TimelineInput): { props: LessonRenderPro
     height: 1080,
     durationInFrames: outroFrom + outroDuration,
     burnSubtitles: input.burnSubtitles,
+    motion: MOTION_LEVELS[input.motion ?? 'normal'].k,
     characters,
     intro: {
       durationInFrames: introDuration,

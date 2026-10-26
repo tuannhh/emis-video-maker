@@ -29,6 +29,8 @@ import { ZodPipe } from './zod.pipe.js';
 
 const FeedbackSchema = z.object({ feedback: z.string().trim().min(3).max(2000) });
 const RejectSchema = FeedbackSchema.extend({ mode: z.enum(['script', 'video']) });
+/** Góp ý kịch bản, có thể kèm các câu cần sửa ("section:line") */
+const ScriptFeedbackSchema = FeedbackSchema.extend({ scope: z.array(z.string().regex(/^\d{1,3}:\d{1,3}$/)).max(100).optional() });
 const AudioBodySchema = z.object({ audio: AudioSettingsSchema, rerender: z.boolean().default(true) });
 
 @Controller('api/lessons')
@@ -90,8 +92,11 @@ export class LessonsController {
 
   @Post(':id/script/regenerate')
   @HttpCode(202)
-  async regenerate(@Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(FeedbackSchema)) body: { feedback: string }) {
-    await this.service.regenerateScript(id, body.feedback);
+  async regenerate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(ScriptFeedbackSchema)) body: z.infer<typeof ScriptFeedbackSchema>,
+  ) {
+    await this.service.regenerateScript(id, body.feedback, body.scope);
   }
 
   @Post(':id/script/approve')

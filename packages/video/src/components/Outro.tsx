@@ -20,6 +20,7 @@ export const Outro: React.FC<{ outro: RenderOutro; host: RenderCharacter | null 
     level: '',
     action: 'cheer',
     reaction: 'none',
+    emotion: 'excited',
   } as unknown as RenderShot;
   const ctx = (f: number) => ({ id: host?.id ?? '', shot: hostShot, local: f, frame: f, lookX: 0, x: W * 0.82 });
 

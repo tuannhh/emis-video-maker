@@ -22,6 +22,7 @@ export const Intro: React.FC<{ intro: RenderIntro; host: RenderCharacter | null 
     level: intro.level,
     action: 'cheer',
     reaction: 'none',
+    emotion: 'excited',
   } as unknown as RenderShot;
   const ctx = (f: number) => ({ id: host?.id ?? '', shot: hostShot, local: f, frame: f, lookX: 0, x: W * 0.8 });
   // Mascot chính diện dang tay có khung ảnh rộng gần gấp đôi nhân vật thường: thu nhỏ lại và dồn tiêu đề sang trái

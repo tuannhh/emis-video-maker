@@ -15,8 +15,12 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
-import { SFX_IDS, type SfxId } from '@edu/shared';
+import { SFX_IDS, VOICE_IDS, VOICE_YOUTH_IDS, normalizeForTts, type SfxId } from '@edu/shared';
 import { AssetsRepo } from '../core/assets.repo.js';
+import { GeminiService } from '../core/gemini.service.js';
+import { youngerVoice } from '../pipeline/audio.js';
+import { sha1 } from '../pipeline/util.js';
+import { speechStyle, youthFactor } from '../pipeline/voice.step.js';
 import { SoundService, audioExt } from '../core/sound.service.js';
 import { StorageService } from '../core/storage.service.js';
 import { usageContext } from '../core/usage.service.js';
@@ -31,6 +35,23 @@ const GenerateSchema = z.object({
   lessonId: z.string().uuid().optional(),
 });
 
+/** Nghe thử giọng nhân vật trước khi sản xuất */
+const VoicePreviewSchema = z.object({
+  voice: z.enum(VOICE_IDS),
+  role: z.enum(['child', 'adult', 'mascot', 'narrator']),
+  youth: z.enum(VOICE_YOUTH_IDS).optional(),
+  name: z.string().trim().max(40).default(''),
+  text: z.string().trim().max(200).optional(),
+});
+
+function previewText(role: string, name: string) {
+  const me = name ? `Mình là ${name}. ` : '';
+  if (role === 'child') return `Ồ! Xin chào các bạn! ${me}Hôm nay chúng mình cùng khám phá điều thú vị nhé!`;
+  if (role === 'mascot') return `Xin chào các bạn nhỏ! ${me}Cùng mình học thật vui nào!`;
+  if (role === 'adult') return `Chào các con! ${me}Hôm nay cô trò mình cùng tìm hiểu một bài học mới nhé.`;
+  return `Ngày xửa ngày xưa, có một bạn nhỏ rất thích khám phá thế giới xung quanh.`;
+}
+
 function uploaded(req: Request): { data: Buffer; mime: string } {
   const mime = String(req.headers['content-type'] ?? '').split(';')[0].trim();
   if (!audioExt(mime)) throw new BadRequestException('Chỉ nhận file âm thanh MP3, WAV, OGG, M4A, AAC hoặc WEBM');
@@ -44,7 +65,22 @@ export class SoundsController {
     @Inject(SoundService) private readonly sound: SoundService,
     @Inject(AssetsRepo) private readonly repo: AssetsRepo,
     @Inject(StorageService) private readonly storage: StorageService,
+    @Inject(GeminiService) private readonly gemini: GeminiService,
   ) {}
+
+  /** Đọc thử một câu bằng giọng, vai và độ trẻ đã chọn (đúng cách lồng tiếng khi sản xuất); cùng tham số thì dùng lại bản cũ */
+  @Post('voice-preview')
+  async voicePreview(@Body(new ZodPipe(VoicePreviewSchema)) body: z.infer<typeof VoicePreviewSchema>) {
+    const text = normalizeForTts(body.text || previewText(body.role, body.name));
+    const style = speechStyle({ role: body.role, voice: body.voice }, 'excited');
+    const youth = youthFactor({ role: body.role, youth: body.youth });
+    const key = `previews/voices/${sha1(body.voice, style, String(youth), text)}.wav`;
+    if (!(await this.storage.exists(key))) {
+      const wav = await this.gemini.speech('Nghe thử giọng', [{ text, style }], body.voice);
+      await this.storage.put(key, youngerVoice(wav, youth));
+    }
+    return { url: this.storage.publicUrl(key) };
+  }
 
   @Get('music')
   async music() {

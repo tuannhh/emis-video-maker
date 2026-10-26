@@ -124,7 +124,10 @@ export const api = {
   createLesson: (idea: LessonIdea) => request<LessonView>('/api/lessons', { method: 'POST', body: JSON.stringify(idea) }),
   saveScript: (id: string, script: LessonScript) =>
     request<Lesson>(`/api/lessons/${id}/script`, { method: 'PUT', body: JSON.stringify(script) }),
-  regenerateScript: (id: string, feedback: string) => post(`/api/lessons/${id}/script/regenerate`, { feedback }),
+  regenerateScript: (id: string, feedback: string, scope?: string[]) =>
+    post(`/api/lessons/${id}/script/regenerate`, { feedback, scope: scope?.length ? scope : undefined }),
+  voicePreview: (body: { voice: string; role: string; youth?: string; name?: string }) =>
+    request<{ url: string }>('/api/sounds/voice-preview', { method: 'POST', body: JSON.stringify(body) }),
   approveScript: (id: string) => post(`/api/lessons/${id}/script/approve`),
   approveFinal: (id: string) => post(`/api/lessons/${id}/final/approve`),
   rejectFinal: (id: string, feedback: string, mode: 'script' | 'video') =>

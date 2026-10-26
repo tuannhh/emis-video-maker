@@ -1,8 +1,38 @@
-import { EMOTIONS, SFX, VOICES, type Asset, type LessonIdea, type LessonScript } from '@edu/shared';
+import {
+  EMOTIONS,
+  SFX,
+  type ArtStyle,
+  VOICES,
+  type Asset,
+  type LessonIdea,
+  type LessonScript,
+  type Storyboard,
+  type StoryboardBackground,
+  type StoryboardScene,
+} from '@edu/shared';
+import { KEY_HEX, type KeyColor } from './chroma.js';
 
-export const ART_STYLE =
-  "Flat 2D vector cartoon illustration for a children's educational animation, bright cheerful colors, " +
-  'clean soft outlines, simple cel shading, friendly and cute, consistent with a Vietnamese kids TV show.';
+/** Lời mô tả từng phong cách vẽ có sẵn (gửi cho model ảnh) */
+export const ART_STYLE_PROMPTS: Record<ArtStyle, string> = {
+  flat:
+    "Modern premium 2D vector cartoon illustration for a children's educational animation: rounded friendly shapes, rich " +
+    'harmonious bright palette, soft gradients and gentle soft shading with subtle rim light, clean smooth outlines, appealing ' +
+    'expressive faces with big sparkling eyes, polished and contemporary like a high-quality Vietnamese kids TV show.',
+  '3d':
+    "Soft 3D cartoon render like a modern animated feature film for kids: rounded clay-like volumes, soft global illumination, " +
+    'warm cinematic lighting, smooth matte materials, cute proportions with big expressive eyes, vibrant but harmonious colors.',
+  storybook:
+    "Warm children's picture-book illustration: soft watercolor washes with colored-pencil texture, gentle hand-drawn outlines, " +
+    'cozy pastel palette with bright accents, subtle paper grain, whimsical and heartwarming, expressive cute faces.',
+  papercut:
+    'Layered paper-cut craft illustration: bold simple shapes cut from colored cardstock, subtle soft drop shadows between ' +
+    'paper layers, visible paper texture, cheerful saturated colors, cute expressive faces.',
+};
+export const ART_STYLE = ART_STYLE_PROMPTS.flat;
+
+/** `style`: true = theo ảnh tham chiếu phong cách; chuỗi = lời mô tả phong cách có sẵn; false = mặc định */
+export type StyleArg = boolean | string;
+const artOf = (style: StyleArg) => (typeof style === 'string' ? style : style ? STYLE_FROM_REFERENCE : ART_STYLE);
 
 /** Thay ART_STYLE khi người dùng tải ảnh tham chiếu phong cách (ảnh gửi kèm request vẽ) */
 export const STYLE_FROM_REFERENCE =
@@ -22,8 +52,13 @@ Nguyên tắc:
 - Mỗi phần (section) diễn ra trong MỘT bối cảnh cố định; ưu tiên cả bài ở MỘT địa điểm (tối đa 3). Các phần cùng địa điểm ghi setting giống hệt nhau.
 - Tối đa 3 nhân vật có hình (child/adult/mascot) và có thể thêm 1 người dẫn chuyện (role "narrator", không có hình).
 - Mô tả ngoại hình nhân vật (description) bằng tiếng Anh, cụ thể: tuổi, giới tính, kiểu tóc, màu tóc, trang phục và màu sắc, phụ kiện.
-  Trang phục KHÔNG dùng màu hồng, tím hay magenta.
+  Nhân vật hiện đại, cuốn hút và đa dạng: kiểu tóc, vóc dáng, trang phục khác nhau rõ rệt (học sinh Việt Nam ngày nay; giáo viên trẻ
+  trung, thân thiện, trang phục lịch sự hiện đại); con vật đáng yêu, mắt to biểu cảm. Trang phục KHÔNG dùng màu hồng, tím hay magenta.
+- Lời thoại của trẻ em phải tự nhiên như trẻ thật nói: hồn nhiên, câu ngắn, có cảm thán ("Ồ!", "A, mình biết rồi!", "Thật hả cô?"),
+  hỏi han tò mò; không nói như người lớn đọc sách. Người lớn nói ấm áp, gần gũi.
 - ttsText là đúng câu thoại đó nhưng viết số và ký hiệu thành chữ để máy đọc chuẩn (ví dụ "0" → "không", "3 + 2 = 5" → "ba cộng hai bằng năm").
+- delivery: chỉ dẫn diễn xuất tiếng Anh ngắn cho giọng đọc từng câu (ngữ điệu lên xuống, nhịp nhanh/chậm, nhấn chữ nào, kéo dài tiếng
+  cảm thán, thì thầm, reo lên...) để giọng đọc có hồn, không đều đều.
 - visualNote mô tả ngắn nhân vật đang làm gì / chỉ vào vật nào, để đạo diễn hình ảnh dựng cảnh.`;
 
 export interface ScriptContext {
@@ -152,14 +187,22 @@ Ngôn ngữ hình ảnh — dựng như phim hoạt hình chuyên nghiệp, KHÔ
 - overlay: count khi nhân vật đếm từng vật (target là tên MỘT vật, ví dụ "orange"; text là tổng số); label để gắn số/chữ lên một vật.
   Chỉ dùng khi cần minh hoạ kiến thức. Shot có overlay count PHẢI có framing object (target = nhóm vật) hoặc wide để thấy rõ
   từng vật; text của count là đúng số vật được đếm trong câu.
-- illustration: khi câu thoại nhắc tới một sự vật, con vật hay hình ảnh so sánh mà bối cảnh KHÔNG có sẵn (ví dụ "hình tròn giống
-  cái bánh xe" → bánh xe; "số 8 như chú lật đật" → con lật đật; "số 9 như chiếc móc treo" → móc treo), thêm illustration để hình
-  đó bật ra cạnh nhân vật đúng lúc nói tới: key slug tiếng Anh (cùng sự vật dùng lại cùng key), description tiếng Anh vẽ MỘT sự vật
-  đơn lẻ (không người, không chữ), caption tiếng Việt 1-3 từ, cue là cụm từ NGUYÊN VĂN trong câu thoại.
-  Dùng cho những hình giúp học sinh hiểu bài; không minh hoạ vật đã có trong nền hoặc đang được đếm bằng overlay; tối đa 1 hình
-  mỗi shot và khoảng 1 hình cho mỗi 3-4 câu thoại.
+- illustrations: khi câu thoại nhắc tới sự vật, con vật hay hình ảnh so sánh mà bối cảnh KHÔNG có sẵn (ví dụ "hình tròn giống
+  cái bánh xe" → bánh xe; "số 8 như chú lật đật" → con lật đật; "số 9 như chiếc móc treo" → móc treo), thêm hình để nó bật ra
+  cạnh nhân vật đúng lúc nói tới. Mỗi phần tử là MỘT sự vật: key slug tiếng Anh (cùng sự vật dùng lại cùng key), description
+  tiếng Anh vẽ MỘT sự vật đơn lẻ (không người, không chữ), caption tiếng Việt 1-3 từ, cue là cụm từ NGUYÊN VĂN trong câu thoại.
+  Dùng cho những hình giúp học sinh hiểu bài; không minh hoạ vật đã ghi trong objects của nền hoặc đang được đếm bằng overlay;
+  khoảng 1 shot có hình cho mỗi 2-3 câu thoại.
+  ĐẦY ĐỦ: câu nhắc tới nhiều sự vật cần minh hoạ thì có đủ TỪNG vật (tối đa 4), không bỏ sót vật nào, mỗi vật cue riêng.
+  VỊ TRÍ (BẮT BUỘC): câu nói vị trí giữa các vật (bài trên/dưới, trong/ngoài, trước/sau, trái/phải, bên cạnh) thì LUÔN có
+  illustrations cho cả vật mốc lẫn vật còn lại, kể cả khi nền có thể đã có các vật đó — nền không thể hiện đúng cách sắp đặt
+  nên hình minh hoạ chính là lúc học sinh nhìn thấy vị trí. Đặt relation cho vật không phải mốc, size cho đúng tỉ lệ.
+  Ví dụ "Chim sẻ đậu trên cây, con mèo nằm dưới bàn" → 4 phần tử:
+  {key "tree", size large}, {key "sparrow", size small, relation {to "tree", where "on"}},
+  {key "table", size large}, {key "cat", size medium, relation {to "table", where "under"}}.
+  Vật mốc không có relation; caption của vật có relation chỉ ghi tên vật ("Chim sẻ"), video tự ghép "Chim sẻ trên cây".
   Khi câu thoại đếm hoặc nói số lượng một nhóm vật KHÔNG có trong nền ("một, hai, ba... sáu cây bút chì", "có 7 cục tẩy"), dùng
-  illustration với count = ĐÚNG số lượng đó (2-10): description và key vẫn là MỘT vật số ít ("a yellow pencil", key "pencil"),
+  count = ĐÚNG số lượng đó (2-10): description và key vẫn là MỘT vật số ít ("a yellow pencil", key "pencil"),
   tuyệt đối không ghi số lượng vào description, caption dạng "<số> <tên vật>" ("6 bút chì") — video tự nhân hình thành đúng
   count cái và hiện từng cái theo nhịp đếm. Hình một chữ số ("Số 8") không bao giờ có count.
 - sfx (không bắt buộc) chỉ cho điểm nhấn: ${Object.entries(SFX)
@@ -168,11 +211,27 @@ Ngôn ngữ hình ảnh — dựng như phim hoạt hình chuyên nghiệp, KHÔ
   .join(', ')}. Tiếng chuyển cảnh và tiếng nhãn hiện ra hệ thống tự thêm.
 - transition của scene: iris khi đổi địa điểm (và scene đầu tiên); dissolve khi chuyển sang nền biến thể cùng nơi; cut khi cùng nền.`;
 
+/** Phạm vi dàn dựng: chỉ các section đã sửa, hoặc sửa storyboard hiện có theo góp ý về video */
+export interface StagingScope {
+  /** Kịch bản đã sửa: chỉ dàn dựng các section này, các section khác giữ nguyên */
+  sections?: number[];
+  /** Cách dựng cũ của section đã sửa (tham khảo để giữ nền, chỗ đứng) */
+  reference?: { section: number; scene: StoryboardScene }[];
+  /** Scene giữ nguyên (để biết nền và vị trí nhân vật đang dùng) */
+  kept?: StoryboardScene[];
+  keptBackgrounds?: StoryboardBackground[];
+  /** Góp ý về video: storyboard hiện có */
+  revise?: Storyboard;
+  /** Thời điểm từng câu trong video trước */
+  timing?: string | null;
+}
+
 export function storyboardPrompt(
   script: LessonScript,
   backgrounds: Asset[],
   feedback?: string | null,
   chosen: { keys: string[]; only: boolean } = { keys: [], only: false },
+  scope: StagingScope = {},
 ) {
   const visual = script.characters.filter((c) => c.role !== 'narrator');
   const lib = backgrounds.length
@@ -197,6 +256,34 @@ export function storyboardPrompt(
           : 'Ưu tiên dùng các nền này; chỉ tạo nền mới khi bài học thật sự cần.'
       }\n`
     : '';
+  let task = feedback && !scope.revise ? `\nNgười duyệt góp ý về bản video trước: "${feedback}". Hãy dàn dựng lại cho phù hợp.` : '';
+  if (scope.sections?.length) {
+    const keptBgs = [...new Set((scope.kept ?? []).map((sc) => sc.backgroundKey))];
+    task +=
+      `\nKịch bản vừa được sửa. CHỈ dàn dựng các section: ${scope.sections.join(', ')}. Các section khác đã dựng xong và GIỮ NGUYÊN.\n` +
+      `scenes chỉ gồm các section trên; backgrounds gồm nền các scene đó dùng (nền đã có thì dùng lại đúng key, không mô tả lại).\n` +
+      (keptBgs.length ? `Nền đang dùng ở các section giữ nguyên: ${keptBgs.map((k) => `"${k}"`).join(', ')} — cùng địa điểm thì dùng lại đúng nền này.\n` : '') +
+      (scope.kept?.length
+        ? `Vị trí nhân vật ở các section giữ nguyên: ${JSON.stringify(scope.kept.map((sc) => ({ section: sc.sectionIndex, characters: sc.characters })))}\n`
+        : '') +
+      (scope.reference?.length
+        ? `Cách dựng TRƯỚC KHI SỬA của các section này (lineIndex theo kịch bản cũ) — giữ nền, vị trí nhân vật và cách dựng các câu không đổi, ` +
+          `chỉ dựng mới cho câu mới/câu đã sửa:\n${scope.reference.map((r) => `Section ${r.section}: ${JSON.stringify(r.scene)}`).join('\n')}\n`
+        : '');
+  }
+  if (scope.revise) {
+    const bgList = scope.revise.backgrounds.map((b) => `- "${b.key}": ${b.description}`).join('\n');
+    task +=
+      `\nĐây là bản dàn dựng HIỆN TẠI của video:\nNền:\n${bgList}\nScenes:\n${scope.revise.scenes.map((sc) => JSON.stringify(sc)).join('\n')}\n` +
+      (scope.timing ? `\nThời điểm từng câu trong video (phút:giây):\n${scope.timing}\n` : '') +
+      `\nNgười duyệt góp ý về video: "${feedback}"\n` +
+      `Nguyên tắc QUAN TRỌNG NHẤT: chỉ sửa đúng chỗ người duyệt góp ý, mọi thứ khác giữ nguyên để người duyệt không phải duyệt lại.\n` +
+      `- scenes CHỈ gồm những scene cần đổi; scene trả về thay thế toàn bộ scene cũ cùng sectionIndex, nên trong scene đó giữ nguyên ` +
+      `mọi shot không liên quan tới góp ý (chép lại y hệt). Không trả về scene không cần đổi.\n` +
+      `- Muốn vẽ lại một nền hay một hình minh hoạ thì dùng KEY MỚI (ví dụ thêm hậu tố "-v2") kèm mô tả mới; giữ key cũ là dùng lại hình cũ.\n` +
+      `- backgrounds chỉ cần các nền mà scene trả về dùng.\n` +
+      `- summary: tóm tắt ngắn bằng tiếng Việt những gì đã đổi.`;
+  }
   return `Nhân vật có hình: ${visual.map((c) => `${c.id} (${c.name})`).join(', ') || 'không có'}
 
 Nền có sẵn trong thư viện:
@@ -204,23 +291,25 @@ ${lib}
 ${pick}
 Kịch bản:
 ${sections}
-${feedback ? `\nNgười duyệt góp ý về bản video trước: "${feedback}". Hãy dàn dựng lại cho phù hợp.` : ''}`;
+${task}`;
 }
 
 /** Hình minh hoạ: một sự vật đơn lẻ bật ra cạnh nhân vật khi lời thoại nhắc tới */
-export function illustrationPrompt(description: string, styled = false) {
-  return `${styled ? STYLE_FROM_REFERENCE : ART_STYLE}
+export function illustrationPrompt(description: string, style: StyleArg = false, key: KeyColor = 'magenta') {
+  return `${artOf(style)}
 A single isolated object illustration (sticker-like, no scene): ${description}.
 Exactly ONE single object (if the description mentions several, draw only one of them), centered, fully visible with a generous empty margin, clean readable silhouette, no people, no hands,
-no text, letters or numbers unless the object itself is a written number. ${MAGENTA_BG}
-The object itself must not contain any pink, magenta or purple colors.`;
+nothing else on, in or around it (no extra animals, birds, insects, toys or decorations — other objects are drawn separately),
+no text, letters or numbers unless the object itself is a written number. Animals look cute and expressive with big friendly eyes.
+Background: one flat solid pure ${key} color (${KEY_HEX[key]}) with no gradient, no shadow, no floor line, no text.
+The object keeps its natural real-world colors but must not contain the background color (${key}) itself.`;
 }
 
 const MAGENTA_BG =
   'Background: one flat solid pure magenta color (#FF00FF) with no gradient, no shadow, no floor line, no text.';
 
-export function characterPrompt(description: string, styled = false) {
-  return `${styled ? STYLE_FROM_REFERENCE : ART_STYLE}
+export function characterPrompt(description: string, style: StyleArg = false) {
+  return `${artOf(style)}
 Full-body character design of ONE character: ${description}.
 Three-quarter view: the body and face are turned about 30 degrees toward the viewer's RIGHT side, eyes looking to the right.
 Standing naturally, arms relaxed at the sides, friendly expression with the MOUTH CLOSED, both feet on the ground.
@@ -302,8 +391,21 @@ export const POSE_EDITS = {
 
 export const MOUTH_OPEN_PROMPT = `Edit this image. The ONLY change: the mouth is open naturally as if talking. ${KEEP}`;
 
-export function backgroundPrompt(description: string, objects: string[], styled = false) {
-  return `${styled ? STYLE_FROM_REFERENCE : ART_STYLE}
+/** Biểu cảm: chỉ đổi mắt và lông mày (miệng giữ nguyên để vẫn nhép theo lời) */
+export const EXPRESSION_EDITS = {
+  happy:
+    'Edit this image. The ONLY change is the eyes and eyebrows: a big joyful happy look — eyes squeezed into happy upward-curved ' +
+    `crescents, eyebrows raised and relaxed. Do NOT change the mouth, head position, hair or anything else. ${KEEP}`,
+  surprised:
+    'Edit this image. The ONLY change is the eyes and eyebrows: an amazed surprised look — eyes opened wide and round with ' +
+    `bright sparkles, eyebrows raised high. Do NOT change the mouth, head position, hair or anything else. ${KEEP}`,
+  thinking:
+    'Edit this image. The ONLY change is the eyes and eyebrows: a curious thinking look — pupils looking up to the side, ' +
+    `one eyebrow raised higher than the other. Do NOT change the mouth, head position, hair or anything else. ${KEEP}`,
+} as const;
+
+export function backgroundPrompt(description: string, objects: string[], style: StyleArg = false) {
+  return `${artOf(style)}
 Wide 16:9 background scene for an animated lesson: ${description}.
 These objects must be clearly visible, well separated and easy to recognise: ${objects.join(', ')}.
 No people, no characters, no animals unless described, no text, no letters, no numbers anywhere in the picture.
@@ -369,3 +471,45 @@ No vocals, no singing, no spoken words. Loopable, about 60 seconds.${extra ? `\n
 
 export const TRANSCRIBE_PROMPT =
   'Transcribe exactly every word spoken in this audio, in the original language(s). Output only the transcript.';
+
+/** Kịch bản đánh số [section][line] để AI tham chiếu đúng câu cần sửa */
+function numberedScript(script: LessonScript) {
+  const cast = script.characters.map((c) => `- ${c.id}: ${c.name} (${c.role}, giọng ${c.voice})`).join('\n');
+  const body = script.sections
+    .map(
+      (sec, si) =>
+        `Section ${si}: ${sec.heading} — bối cảnh: ${sec.setting}\n` +
+        sec.lines.map((l, li) => `  [${si}][${li}] ${l.speaker} (${l.emotion}): ${l.text}`).join('\n'),
+    )
+    .join('\n\n');
+  return `Tên bài: ${script.title}\nNhân vật:\n${cast}\n\n${body}\n\nGhi nhớ cuối video: ${script.recap.join(' | ')}`;
+}
+
+/**
+ * Sửa kịch bản theo góp ý: AI chỉ trả về thao tác trên câu cần đổi (không viết lại cả bài) nên mọi chỗ khác giữ nguyên.
+ * `scope`: các câu người duyệt đã chọn ("section:line").
+ */
+export function scriptRevisePrompt(idea: LessonIdea, script: LessonScript, feedback: string, scope: string[]) {
+  const emotions = Object.keys(EMOTIONS).join(', ');
+  const picked = scope.map((k) => `[${k.replace(':', '][')}]`).join(', ');
+  return `Bạn đang SỬA một kịch bản đã có theo góp ý của người duyệt (bài: ${idea.topic}; môn ${idea.subject}; lớp ${idea.grade}).
+
+NGUYÊN TẮC QUAN TRỌNG NHẤT: chỉ thay đổi đúng những gì góp ý yêu cầu. Mọi câu thoại, tên phần, bối cảnh khác GIỮ NGUYÊN từng chữ
+và KHÔNG được liệt kê trong kết quả. Không sửa câu chỉ để "hay hơn" khi góp ý không nhắc tới. Người duyệt rất phiền khi chỗ khác bị đổi.
+${
+  scope.length
+    ? `Người duyệt đã CHỌN các câu cần sửa: ${picked}. Chỉ được replace/delete đúng các câu này, hoặc insert câu mới sát trước/sau chúng.\n`
+    : 'Tự xác định ít câu nhất cần đổi để đáp ứng góp ý (góp ý áp cho cả bài, ví dụ đổi tên một nhân vật, thì sửa đúng các câu có liên quan).\n'
+}
+Kịch bản hiện tại:
+${numberedScript(script)}
+
+Người duyệt góp ý: "${feedback}"
+
+Trả về:
+- edits: thao tác trên từng câu, [section][line] theo số thứ tự của kịch bản hiện tại ở trên (không đánh số lại sau khi chèn/xoá).
+  Câu mới (replace/insert) đầy đủ speaker (id nhân vật), text, ttsText (số và ký hiệu viết thành chữ), emotion (một trong: ${emotions}),
+  delivery, visualNote.
+- Chỉ dùng sectionEdits / addSections / removeSections / title / recap / newCharacters khi góp ý yêu cầu rõ điều đó.
+- summary: tóm tắt ngắn những gì đã sửa.`;
+}

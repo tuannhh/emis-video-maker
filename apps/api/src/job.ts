@@ -29,7 +29,7 @@ async function main() {
   try {
     const pipeline = app.get(PipelineService);
     Logger.log(`Bắt đầu ${name} cho bài ${data.lessonId}`, 'Job');
-    if (name === 'script') await pipeline.generateScript(data.lessonId, data.feedback);
+    if (name === 'script') await pipeline.generateScript(data.lessonId, data.feedback, data.scope);
     else await pipeline.produce(data.lessonId, data.restage, data.audioOnly);
     Logger.log('Xong', 'Job');
   } finally {

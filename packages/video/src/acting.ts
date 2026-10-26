@@ -1,4 +1,4 @@
-import type { Pose, RenderShot } from '@edu/shared';
+import { EXPRESSION_OF_EMOTION, type Expression, type Pose, type RenderShot } from '@edu/shared';
 import { hashOf } from './geometry';
 import type { RigState } from './components/CharacterRig';
 
@@ -152,6 +152,43 @@ export function hopStartFrame(shot: RenderShot) {
 /** Số frame chuyển dáng (hoà hai dáng tay — đầu và thân chung nên chỉ tay chuyển động) */
 export const POSE_BLEND = 2;
 
+/** Số frame hiện dần / tắt dần một biểu cảm */
+const EXPR_FADE = 5;
+const NOD_FRAMES = 26;
+
+/**
+ * Biểu cảm (vùng mắt) tại một frame: người nói theo cảm xúc câu thoại (từ ngay trước khi nói tới hết câu),
+ * người nghe vui lây khi nhảy lên reo mừng.
+ */
+function expressionAt(ctx: ActingContext): Expression | null {
+  const { shot, local, id } = ctx;
+  if (shot.speaker === id) {
+    const e = shot.emotion ? EXPRESSION_OF_EMOTION[shot.emotion] : undefined;
+    const a = local - shot.audioOffset;
+    return e && a >= -8 && a <= shot.audioFrames + 14 ? e : null;
+  }
+  const hop = hopStartFrame(shot);
+  return hop !== null && local >= hop - 6 && local < hop + HOP_FRAMES + 30 ? 'happy' : null;
+}
+
+/** Người nghe gật đầu khi đạo diễn chọn phản ứng "nod": giữa câu, hai nhịp gật */
+export function nodStartFrame(shot: RenderShot) {
+  return shot.reaction === 'nod' ? shot.audioOffset + Math.min(24, Math.round(shot.audioFrames * 0.4)) : null;
+}
+
+/** Độ lớn giọng 0..1 quanh frame `a` của audio (làm mượt để thân không giật theo từng âm tiết) */
+function levelAt(shot: RenderShot, a: number) {
+  let sum = 0;
+  let n = 0;
+  for (let k = -3; k <= 3; k++) {
+    const c = shot.level[a + k];
+    if (c === undefined) continue;
+    sum += Number(c) / 9;
+    n++;
+  }
+  return n ? sum / n : 0;
+}
+
 export function rigState(ctx: ActingContext, prev: (k: number) => ActingContext): RigState {
   const now = basic(ctx);
   let poseAgo = 99;
@@ -168,5 +205,39 @@ export function rigState(ctx: ActingContext, prev: (k: number) => ActingContext)
   const speaking = ctx.shot.speaker === ctx.id;
   const a = ctx.local - ctx.shot.audioOffset;
   const mouthOpen = speaking && ctx.shot.mouth[a] === '1';
-  return { ...now, poseAgo, prevPose, turnAgo, mouthOpen, blink: blinkAt(ctx.id, ctx.frame) };
+
+  // Biểu cảm hiện dần khi bắt đầu, tắt dần khi hết
+  let expression = expressionAt(ctx);
+  let exprAlpha = 0;
+  if (expression) {
+    let k = 1;
+    while (k <= EXPR_FADE && expressionAt(prev(k)) === expression) k++;
+    exprAlpha = k / (EXPR_FADE + 1);
+  } else {
+    for (let k = 1; k <= EXPR_FADE; k++) {
+      const e = expressionAt(prev(k));
+      if (e) {
+        expression = e;
+        exprAlpha = 1 - k / (EXPR_FADE + 1);
+        break;
+      }
+    }
+  }
+  const nodStart = speaking ? null : nodStartFrame(ctx.shot);
+  const nod = nodStart !== null && ctx.local >= nodStart && ctx.local < nodStart + NOD_FRAMES ? (ctx.local - nodStart) / NOD_FRAMES : -1;
+  const level = speaking && a >= 0 && a < ctx.shot.audioFrames ? levelAt(ctx.shot, a) : 0;
+  return {
+    ...now,
+    poseAgo,
+    prevPose,
+    turnAgo,
+    mouthOpen,
+    blink: blinkAt(ctx.id, ctx.frame),
+    expression,
+    exprAlpha,
+    nod,
+    speaking: speaking && a >= -4 && a < ctx.shot.audioFrames + 6,
+    level,
+    listening: !speaking && ctx.lookX !== null,
+  };
 }

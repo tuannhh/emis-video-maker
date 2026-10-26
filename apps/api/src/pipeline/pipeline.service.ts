@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import sharp from 'sharp';
-import { STEP_LABELS, STORYBOARD_VERSION, type LessonIdea, type ProductionStep } from '@edu/shared';
+import { STEP_LABELS, STORYBOARD_VERSION, type LessonIdea, type LessonRenderProps, type ProductionStep } from '@edu/shared';
 import { LessonsRepo } from '../core/lessons.repo.js';
 import { SoundService } from '../core/sound.service.js';
 import { StorageService } from '../core/storage.service.js';
@@ -11,6 +11,7 @@ import { QaStep } from './qa.step.js';
 import { RenderStep } from './render.step.js';
 import { ScriptStep, styleTag } from './script.step.js';
 import { StoryboardStep } from './storyboard.step.js';
+import { ART_STYLE_PROMPTS } from './prompts.js';
 import { buildRenderProps } from './timeline.js';
 import { VoiceStep } from './voice.step.js';
 
@@ -46,8 +47,8 @@ export class PipelineService {
     return usageContext.run(ctx, () => fn(ctx));
   }
 
-  generateScript(lessonId: string, feedback?: string) {
-    return this.withUsage(lessonId, 'script', () => this.doGenerateScript(lessonId, feedback));
+  generateScript(lessonId: string, feedback?: string, scope?: string[]) {
+    return this.withUsage(lessonId, 'script', () => this.doGenerateScript(lessonId, feedback, scope));
   }
 
   /**
@@ -58,9 +59,36 @@ export class PipelineService {
     return this.withUsage(lessonId, 'storyboard', (ctx) => this.doProduce(lessonId, restage, audioOnly, ctx));
   }
 
-  private async doGenerateScript(lessonId: string, feedback?: string) {
+  private async doGenerateScript(lessonId: string, feedback?: string, scope?: string[]) {
     const lesson = await this.mustGet(lessonId);
     await this.lessons.update(lessonId, { status: 'generating_script', step: 'script', progress: 10, error: null });
+    // Đã có kịch bản + góp ý: chỉ sửa đúng chỗ được góp ý, phần còn lại giữ nguyên
+    if (feedback && lesson.script) {
+      await this.lessons.addEvent(
+        lessonId,
+        'step',
+        scope?.length ? `AI đang sửa ${scope.length} câu đã chọn theo góp ý` : 'AI đang sửa kịch bản theo góp ý (chỉ sửa chỗ được góp ý)',
+      );
+      try {
+        const { script, summary, changed } = await this.scriptStep.revise(lesson.idea, lesson.script, feedback, scope);
+        await this.lessons.update(lessonId, {
+          script,
+          scriptPrevious: lesson.script,
+          title: script.title,
+          status: 'script_review',
+          step: null,
+          progress: 100,
+        });
+        await this.lessons.addEvent(
+          lessonId,
+          'ready',
+          changed ? `Đã sửa kịch bản: ${summary}. Các câu khác giữ nguyên.` : 'AI không tìm thấy chỗ cần sửa theo góp ý, kịch bản giữ nguyên',
+        );
+      } catch (err) {
+        await this.fail(lessonId, 'script', err);
+      }
+      return;
+    }
     await this.lessons.addEvent(lessonId, 'step', feedback ? 'AI đang viết lại kịch bản theo góp ý' : 'AI đang viết kịch bản');
     try {
       const materials = lesson.idea.materialIds?.length ?? 0;
@@ -74,6 +102,7 @@ export class PipelineService {
       const script = await this.scriptStep.run(lesson.idea, feedback, lesson.script);
       await this.lessons.update(lessonId, {
         script,
+        scriptPrevious: null,
         title: script.title,
         status: 'script_review',
         step: null,
@@ -106,10 +135,36 @@ export class PipelineService {
     try {
       await enter('storyboard');
       // Storyboard kiểu cũ (trước khi có ngôn ngữ hình ảnh mới) được dàn dựng lại
-      let board = restage || lesson.storyboard?.v !== STORYBOARD_VERSION ? null : lesson.storyboard;
+      let board = lesson.storyboard?.v === STORYBOARD_VERSION ? lesson.storyboard : null;
       if (!board) {
         board = await this.storyboardStep.run(script, restage ? lesson.feedback : null, lesson.idea);
         await this.lessons.update(lessonId, { storyboard: board });
+      } else if (restage && lesson.feedback) {
+        // Góp ý về video: chỉ dựng lại cảnh liên quan, cảnh khác giữ nguyên (hình, giọng đã có được dùng lại)
+        const r = await this.storyboardStep.revise(script, board, lesson.feedback, lesson.idea, await this.timing(lesson.output?.propsKey));
+        board = r.board;
+        await this.lessons.update(lessonId, { storyboard: board });
+        await this.lessons.addEvent(
+          lessonId,
+          'step',
+          r.restaged.length
+            ? `Dựng lại ${r.restaged.length}/${script.sections.length} phần theo góp ý (${r.summary}); các phần khác giữ nguyên`
+            : 'AI thấy không cần đổi cảnh nào theo góp ý, giữ nguyên dàn dựng',
+        );
+      } else if (!audioOnly) {
+        // Kịch bản đã sửa sau lần dựng trước: chỉ dựng lại phần đã đổi
+        const r = await this.storyboardStep.reconcile(script, board, lesson.idea);
+        if (r) {
+          board = r.board;
+          await this.lessons.update(lessonId, { storyboard: board });
+          if (r.restaged.length) {
+            await this.lessons.addEvent(
+              lessonId,
+              'step',
+              `Dựng lại ${r.restaged.length}/${script.sections.length} phần có lời thoại thay đổi; các phần khác giữ nguyên`,
+            );
+          }
+        }
       }
 
       await enter('assets');
@@ -130,6 +185,7 @@ export class PipelineService {
         voices,
         url: (key) => this.storage.internalUrl(key),
         burnSubtitles: lesson.idea.burnSubtitles ?? true,
+        motion: lesson.idea.motion,
         audio: lesson.audio,
         sfxKeys: await this.sound.sfxKeys(),
         music,
@@ -166,13 +222,35 @@ export class PipelineService {
     }
   }
 
+  /** Thời điểm từng câu trong video đã render (để AI hiểu góp ý kiểu "ở giây 0:42") */
+  private async timing(propsKey: string | undefined): Promise<string | null> {
+    if (!propsKey || !(await this.storage.exists(propsKey))) return null;
+    try {
+      const props = JSON.parse((await this.storage.read(propsKey)).toString('utf8')) as LessonRenderProps;
+      const mmss = (f: number) => {
+        const sec = Math.floor(f / props.fps);
+        return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+      };
+      return props.scenes
+        .map(
+          (sc, si) =>
+            `Section ${si} (${mmss(sc.from)}–${mmss(sc.from + sc.durationInFrames)}):\n` +
+            sc.shots.map((sh, li) => `  [${mmss(sc.from + sh.from + sh.audioOffset)}] câu ${li}: ${sh.text}`).join('\n'),
+        )
+        .join('\n');
+    } catch {
+      return null;
+    }
+  }
+
   /** Ảnh phong cách của bài (thu nhỏ, đổi sang PNG để gửi kèm khi vẽ) */
   private async styleRef(idea: LessonIdea): Promise<StyleRef | null> {
     const tag = styleTag(idea);
-    if (!idea.styleRefId || !tag) return null;
+    if (!tag) return null;
+    if (!idea.styleRefId) return { tag, art: ART_STYLE_PROMPTS[idea.artStyle ?? 'flat'] };
     const { data } = await this.uploads.image(idea.styleRefId, ['style']);
     const image = await sharp(data).resize({ width: 1536, height: 1536, fit: 'inside', withoutEnlargement: true }).png().toBuffer();
-    return { image, mime: 'image/png', tag };
+    return { image, tag };
   }
 
   private async mustGet(id: string) {

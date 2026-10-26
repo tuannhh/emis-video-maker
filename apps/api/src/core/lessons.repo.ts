@@ -18,6 +18,7 @@ const COLUMNS: Record<string, string> = {
   progress: 'progress',
   error: 'error',
   script: 'script',
+  scriptPrevious: 'script_previous',
   storyboard: 'storyboard',
   output: 'output',
   qa: 'qa',
@@ -27,7 +28,7 @@ const COLUMNS: Record<string, string> = {
 /** Kèm tên người tạo bài */
 const SELECT = 'select l.*, u.name as creator_name from lessons l left join users u on u.id = l.created_by';
 
-const JSON_COLUMNS = new Set(['script', 'storyboard', 'output', 'qa', 'audio']);
+const JSON_COLUMNS = new Set(['script', 'scriptPrevious', 'storyboard', 'output', 'qa', 'audio']);
 
 function toLesson(r: any): Lesson {
   return {
@@ -40,6 +41,7 @@ function toLesson(r: any): Lesson {
     progress: r.progress,
     error: r.error,
     script: r.script,
+    scriptPrevious: r.script_previous ?? null,
     storyboard: r.storyboard,
     output: r.output,
     qa: r.qa,

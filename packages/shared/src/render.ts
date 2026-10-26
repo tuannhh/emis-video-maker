@@ -1,5 +1,5 @@
 /** Dữ liệu đã được worker tính sẵn thời gian, truyền vào composition Remotion. */
-import type { Framing, Pose } from './schemas.js';
+import type { Emotion, Expression, Framing, Pose, Relation } from './schemas.js';
 
 /** Frame bắt đầu phát lời chào trong intro */
 export const INTRO_AUDIO_OFFSET = 20;
@@ -28,6 +28,8 @@ export interface RenderCharacter {
   mouth: string | null;
   /** layered: miếng dán mắt nhắm; bộ dáng cũ: ảnh đứng yên mắt nhắm; null nếu không có */
   blink: string | null;
+  /** Miếng dán biểu cảm vùng mắt (nhân vật cũ chưa có thì trống) */
+  expressions: Partial<Record<Expression, string>>;
   /** Kích thước khung chung của mọi dáng, pixel */
   width: number;
   height: number;
@@ -46,6 +48,8 @@ export interface RenderShot {
   durationInFrames: number;
   speaker: string;
   text: string;
+  /** Cảm xúc câu thoại: chọn biểu cảm của người nói */
+  emotion: Emotion;
   audioSrc: string | null;
   audioOffset: number; // frame bắt đầu phát audio, tính từ đầu shot
   audioFrames: number;
@@ -63,18 +67,24 @@ export interface RenderShot {
   /** Người nghe chính (để khung two-shot và hướng nhìn) */
   listener: string | null;
   overlay: { kind: 'label' | 'count'; text: string; boxes: Box[]; startFrames: number[] } | null;
-  /** Hình minh hoạ bật ra khi lời thoại nhắc tới (frame tính từ đầu shot) */
-  illustration: {
-    src: string;
-    caption: string;
-    width: number;
-    height: number;
-    start: number;
-    /** Số bản sao của hình (đếm vật); 1 = một hình */
-    count: number;
-    /** Frame hiện từng bản sao, khớp lúc đọc "một, hai, ba..." */
-    countStarts: number[];
-  } | null;
+  /** Các hình minh hoạ bật ra khi lời thoại nhắc tới (rỗng = không có) */
+  illustrations: RenderIllustration[];
+}
+
+/** Một vật minh hoạ (frame tính từ đầu shot) */
+export interface RenderIllustration {
+  src: string;
+  caption: string;
+  width: number;
+  height: number;
+  start: number;
+  /** Số bản sao của hình (đếm vật); 1 = một hình */
+  count: number;
+  /** Frame hiện từng bản sao, khớp lúc đọc "một, hai, ba..." */
+  countStarts: number[];
+  /** Vị trí so với vật mốc (chỉ số trong mảng illustrations của shot) */
+  relation: { to: number; where: Relation } | null;
+  size: 'small' | 'medium' | 'large';
 }
 
 export interface RenderSceneCharacter {
@@ -134,6 +144,8 @@ export interface LessonRenderProps {
   height: number;
   durationInFrames: number;
   burnSubtitles: boolean;
+  /** Hệ số chuyển động (0.5 nhẹ nhàng, 1 vừa phải, 1.6 sinh động) */
+  motion: number;
   characters: Record<string, RenderCharacter>;
   intro: RenderIntro;
   scenes: RenderScene[];

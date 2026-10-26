@@ -56,19 +56,24 @@ export class LessonsService {
     return this.get(id);
   }
 
-  async regenerateScript(id: string, feedback: string) {
+  async regenerateScript(id: string, feedback: string, scope?: string[]) {
     const lesson = await this.get(id);
     this.expect(lesson, 'script_review', 'failed');
+    // Chỉ nhận câu có thật trong kịch bản hiện tại
+    const valid = (scope ?? []).filter((k) => {
+      const [si, li] = k.split(':').map(Number);
+      return !!lesson.script?.sections[si]?.lines[li];
+    });
     await this.repo.update(id, { status: 'generating_script', step: 'script', progress: 0, feedback });
-    await this.repo.addEvent(id, 'feedback', `Yêu cầu viết lại: ${feedback}`);
-    await this.enqueue('script', { lessonId: id, feedback });
+    await this.repo.addEvent(id, 'feedback', `Góp ý kịch bản${valid.length ? ` (${valid.length} câu đã chọn)` : ''}: ${feedback}`);
+    await this.enqueue('script', { lessonId: id, feedback, scope: valid.length ? valid : undefined });
   }
 
   async approveScript(id: string) {
     const lesson = await this.get(id);
     this.expect(lesson, 'script_review');
-    // Kịch bản có thể đã được sửa: dàn dựng lại từ đầu
-    await this.repo.update(id, { status: 'producing', step: 'storyboard', progress: 0, storyboard: null, feedback: null });
+    // Kịch bản có thể đã được sửa: giữ storyboard cũ, bước dàn dựng chỉ dựng lại các phần có lời thoại thay đổi
+    await this.repo.update(id, { status: 'producing', step: 'storyboard', progress: 0, feedback: null });
     await this.repo.addEvent(id, 'approved', 'Kịch bản đã được duyệt, bắt đầu sản xuất video');
     await this.enqueue('produce', { lessonId: id });
   }

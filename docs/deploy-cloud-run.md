@@ -12,8 +12,12 @@ Trình duyệt ──► emis-video-web (Cloud Run, Next.js) ──/api, /files�
   `emis-video-worker` (4 vCPU, 8 GiB, tối đa 1 giờ). Không có việc thì không tốn tiền compute.
 - **File** nằm trong bucket GCS, gắn vào `/data/storage` bằng Cloud Storage volume. Trình duyệt tải ảnh/video qua link ký sẵn
   (V4, hạn 1 giờ) nên video lớn không đi qua Cloud Run. Worker phục vụ file cho renderer ngay trong tiến trình (`job.ts`).
-- **Bí mật** ở Secret Manager: `emis-database-url`, `emis-app-secret`, `emis-admin-password`. Gemini API key do admin nhập trên web
-  (mã hoá trong DB), không nằm trong biến môi trường.
+- **Bí mật** ở Secret Manager: `emis-database-url`, `emis-app-secret`, `emis-admin-password`.
+- **Gemini** gọi qua Gemini Enterprise Agent Platform (`GEMINI_PROVIDER=agent-platform`, vùng `global`). Có secret
+  `emis-gemini-sa-key` (nội dung = file khoá JSON của service account có role `roles/aiplatform.user`) thì script gắn file đó
+  chỉ đọc vào `/run/secrets/gcp-agent-platform.json` cho API và Job; không có secret thì dùng chính service account của Cloud Run
+  (`emis-video-sa`, khi đó cấp role `roles/aiplatform.user` cho nó). Dịch vụ Agent Platform chưa có (nhạc nền Lyria 3.5) dùng
+  Gemini API key phụ admin nhập ở trang **Cài đặt** (lưu mã hoá trong DB, dùng chung cho API và Job).
 
 ## Chuẩn bị một lần
 
@@ -57,13 +61,23 @@ PROJECT=my-project REGION=asia-southeast1 ADMIN_EMAIL=admin@example.com ./deploy
 Script build 2 image bằng Cloud Build (backend cho API + Job, web), rồi cập nhật Job `emis-video-worker`, service `emis-video-api`
 và `emis-video-web`. URL web: `https://emis-video-web-<project-number>.<region>.run.app`.
 
-Sau lần đầu: đăng nhập bằng `ADMIN_EMAIL` + mật khẩu trong secret `emis-admin-password`, **đổi mật khẩu**, vào **Cài đặt** nhập
-Gemini API key, rồi thêm thành viên ở trang **Thành viên**. Secret mật khẩu admin chỉ dùng để tạo tài khoản lần đầu; đổi mật khẩu
-trên web không cần sửa secret.
+Sau lần đầu: đăng nhập bằng `ADMIN_EMAIL` + mật khẩu trong secret `emis-admin-password`, **đổi mật khẩu**, vào **Cài đặt** kiểm tra
+nền tảng AI (project, vùng, service account), rồi thêm thành viên ở trang **Thành viên**.
+
+Đưa file khoá service account lên Secret Manager (một lần, và mỗi lần thay khoá):
+
+```bash
+gcloud secrets create emis-gemini-sa-key --project $P --replication-policy automatic --data-file <file-khoá>.json
+# thay khoá: gcloud secrets versions add emis-gemini-sa-key --project $P --data-file <file-khoá-mới>.json
+gcloud secrets add-iam-policy-binding emis-gemini-sa-key --project $P \
+  --member serviceAccount:emis-video-sa@$P.iam.gserviceaccount.com --role roles/secretmanager.secretAccessor
+```
+
+Secret mật khẩu admin chỉ dùng để tạo tài khoản lần đầu; đổi mật khẩu trên web không cần sửa secret.
 
 ## Lưu ý
 
-- `APP_SECRET` dùng để ký phiên đăng nhập và mã hoá API key: đổi secret này sẽ đăng xuất mọi người và admin phải nhập lại API key.
+- `APP_SECRET` dùng để ký phiên đăng nhập (và mã hoá API key khi dùng `developer-api`): đổi secret này sẽ đăng xuất mọi người.
 - Bài học bị lỗi giữa chừng (ví dụ Job hết giờ) hiện trạng thái lỗi trên web, bấm **Chạy lại**. Log Job:
   `gcloud run jobs executions list --job emis-video-worker --region $R`.
 - Chi phí khi rảnh: Cloud SQL db-f1-micro (~9 USD/tháng) + lưu trữ GCS; Cloud Run và Job chỉ tính khi có người dùng / đang sản xuất.

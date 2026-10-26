@@ -1,18 +1,33 @@
-'use client';
+"use client";
 
-import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { PRODUCTION_STEPS, STEP_LABELS, type LessonEvent, type LessonScript } from '@edu/shared';
-import { AudioCard } from '@/components/AudioCard';
-import { ScriptEditor } from '@/components/ScriptEditor';
-import { useSession } from '@/components/Session';
-import { StatusBadge } from '@/components/StatusBadge';
-import { UsageCard } from '@/components/UsageCard';
-import type { UploadView } from '@edu/shared';
-import { api, formatTime, slugFileName, type LessonPayload, type LessonView } from '@/lib/api';
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  PRODUCTION_STEPS,
+  STEP_LABELS,
+  type LessonEvent,
+  type LessonScript,
+} from "@edu/shared";
+import { AudioCard } from "@/components/AudioCard";
+import { ScriptEditor } from "@/components/ScriptEditor";
+import { useSession } from "@/components/Session";
+import { StatusBadge } from "@/components/StatusBadge";
+import { UsageCard } from "@/components/UsageCard";
+import type { UploadView } from "@edu/shared";
+import {
+  api,
+  formatTime,
+  slugFileName,
+  type LessonPayload,
+  type LessonView,
+} from "@/lib/api";
 
 /** Trang chi tiết bài học; `fetcher` lấy bài theo mã (URL mới) hoặc theo id (URL cũ). */
-export function LessonDetail({ fetcher }: { fetcher: () => Promise<LessonPayload> }) {
+export function LessonDetail({
+  fetcher,
+}: {
+  fetcher: () => Promise<LessonPayload>;
+}) {
   const router = useRouter();
   const { user, isAdmin } = useSession();
   const [lesson, setLesson] = useState<LessonView | null>(null);
@@ -26,13 +41,15 @@ export function LessonDetail({ fetcher }: { fetcher: () => Promise<LessonPayload
       setEvents(data.events);
       setError(null);
       // Tên bài đổi (sau khi AI viết kịch bản) thì cập nhật URL chuẩn /{môn}/{lớp}/{tên-bài}/{mã}
-      if (window.location.pathname !== data.lesson.path) window.history.replaceState(null, '', data.lesson.path);
+      if (window.location.pathname !== data.lesson.path)
+        window.history.replaceState(null, "", data.lesson.path);
     } catch (e) {
       setError((e as Error).message);
     }
   }, [fetcher]);
 
-  const busy = lesson?.status === 'generating_script' || lesson?.status === 'producing';
+  const busy =
+    lesson?.status === "generating_script" || lesson?.status === "producing";
   useEffect(() => {
     void load();
   }, [load]);
@@ -43,14 +60,22 @@ export function LessonDetail({ fetcher }: { fetcher: () => Promise<LessonPayload
   }, [busy, load]);
 
   if (!lesson) {
-    return <main className="page">{error ? <div className="alert alert-error">{error}</div> : 'Đang tải...'}</main>;
+    return (
+      <main className="page">
+        {error ? (
+          <div className="alert alert-error">{error}</div>
+        ) : (
+          "Đang tải..."
+        )}
+      </main>
+    );
   }
 
   async function remove() {
-    if (!confirm('Xoá bài học này? Video và kịch bản sẽ mất.')) return;
+    if (!confirm("Xoá bài học này? Video và kịch bản sẽ mất.")) return;
     try {
       await api.deleteLesson(lesson!.id);
-      router.push('/');
+      router.push("/");
     } catch (e) {
       alert((e as Error).message);
     }
@@ -67,8 +92,9 @@ export function LessonDetail({ fetcher }: { fetcher: () => Promise<LessonPayload
           <div className="actions" style={{ marginTop: 6 }}>
             <StatusBadge status={lesson.status} />
             <span className="muted small">
-              {lesson.idea.subject} · {lesson.idea.grade} · khoảng {lesson.idea.durationSec} giây
-              {lesson.creatorName ? ` · tạo bởi ${lesson.creatorName}` : ''}
+              {lesson.idea.subject} · {lesson.idea.grade} · khoảng{" "}
+              {lesson.idea.durationSec} giây
+              {lesson.creatorName ? ` · tạo bởi ${lesson.creatorName}` : ""}
             </span>
           </div>
         </div>
@@ -80,7 +106,7 @@ export function LessonDetail({ fetcher }: { fetcher: () => Promise<LessonPayload
       </div>
       {error ? <div className="alert alert-error">{error}</div> : null}
 
-      {lesson.status === 'script_review' && lesson.script ? (
+      {lesson.status === "script_review" && lesson.script ? (
         <>
           <ScriptReview lesson={lesson} script={lesson.script} onDone={load} />
           <div className="grid-2" style={{ marginTop: 16 }}>
@@ -91,15 +117,25 @@ export function LessonDetail({ fetcher }: { fetcher: () => Promise<LessonPayload
       ) : (
         <div className="grid-2">
           <div>
-            {lesson.status === 'generating_script' ? <Working title="AI đang viết kịch bản..." lesson={lesson} /> : null}
-            {lesson.status === 'producing' ? <Production lesson={lesson} /> : null}
-            {lesson.status === 'failed' ? <Failed lesson={lesson} onDone={load} /> : null}
-            {(lesson.status === 'final_review' || lesson.status === 'approved') && lesson.urls ? (
+            {lesson.status === "generating_script" ? (
+              <Working title="AI đang viết kịch bản..." lesson={lesson} />
+            ) : null}
+            {lesson.status === "producing" ? (
+              <Production lesson={lesson} />
+            ) : null}
+            {lesson.status === "failed" ? (
+              <Failed lesson={lesson} onDone={load} />
+            ) : null}
+            {(lesson.status === "final_review" ||
+              lesson.status === "approved") &&
+            lesson.urls ? (
               <FinalReview lesson={lesson} onDone={load} />
             ) : null}
           </div>
           <aside>
-            {lesson.status !== 'generating_script' ? <AudioCard lesson={lesson} onSaved={load} /> : null}
+            {lesson.status !== "generating_script" ? (
+              <AudioCard lesson={lesson} onSaved={load} />
+            ) : null}
             {isAdmin ? <UsageCard lesson={lesson} /> : null}
             <div className="card">
               <h2 style={{ marginBottom: 10 }}>Nhật ký</h2>
@@ -117,7 +153,7 @@ function Working({ title, lesson }: { title: string; lesson: LessonView }) {
   return (
     <div className="card">
       <div className="actions" style={{ marginBottom: 12 }}>
-        <span className="spinner" style={{ color: 'var(--primary)' }} />
+        <span className="spinner" style={{ color: "var(--primary)" }} />
         <h2>{title}</h2>
       </div>
       <div className="progress">
@@ -129,7 +165,9 @@ function Working({ title, lesson }: { title: string; lesson: LessonView }) {
 }
 
 function Production({ lesson }: { lesson: LessonView }) {
-  const currentIdx = PRODUCTION_STEPS.indexOf(lesson.step as (typeof PRODUCTION_STEPS)[number]);
+  const currentIdx = PRODUCTION_STEPS.indexOf(
+    lesson.step as (typeof PRODUCTION_STEPS)[number],
+  );
   return (
     <div className="card">
       <div className="card-head">
@@ -141,30 +179,45 @@ function Production({ lesson }: { lesson: LessonView }) {
       </div>
       <div className="steps">
         {PRODUCTION_STEPS.map((s, i) => {
-          const state = i < currentIdx ? 'done' : i === currentIdx ? 'current' : '';
+          const state =
+            i < currentIdx ? "done" : i === currentIdx ? "current" : "";
           return (
             <div key={s} className={`step ${state}`}>
-              <span className="step-icon">{state === 'done' ? '✓' : state === 'current' ? <span className="spinner" /> : i + 1}</span>
+              <span className="step-icon">
+                {state === "done" ? (
+                  "✓"
+                ) : state === "current" ? (
+                  <span className="spinner" />
+                ) : (
+                  i + 1
+                )}
+              </span>
               {STEP_LABELS[s]}
             </div>
           );
         })}
       </div>
       <p className="muted small" style={{ margin: 0 }}>
-        Bạn có thể rời trang, quá trình vẫn chạy nền. Bài học mới cần vẽ nhân vật và bối cảnh nên lâu hơn; các bài sau dùng lại thư viện
-        sẽ nhanh hơn.
+        Bạn có thể rời trang, quá trình vẫn chạy nền. Bài học mới cần vẽ nhân
+        vật và bối cảnh nên lâu hơn; các bài sau dùng lại thư viện sẽ nhanh hơn.
       </p>
     </div>
   );
 }
 
-function Failed({ lesson, onDone }: { lesson: LessonView; onDone: () => void }) {
+function Failed({
+  lesson,
+  onDone,
+}: {
+  lesson: LessonView;
+  onDone: () => void;
+}) {
   const [busy, setBusy] = useState(false);
   return (
     <div className="card">
       <h2 style={{ marginBottom: 12 }}>Có lỗi xảy ra</h2>
-      <div className="alert alert-error" style={{ whiteSpace: 'pre-wrap' }}>
-        {lesson.step ? `Bước "${STEP_LABELS[lesson.step]}": ` : ''}
+      <div className="alert alert-error" style={{ whiteSpace: "pre-wrap" }}>
+        {lesson.step ? `Bước "${STEP_LABELS[lesson.step]}": ` : ""}
         {lesson.error}
       </div>
       <button
@@ -182,18 +235,34 @@ function Failed({ lesson, onDone }: { lesson: LessonView; onDone: () => void }) 
       >
         Chạy lại từ bước bị lỗi
       </button>
-      <p className="muted small">Những phần đã làm xong (nhân vật, bối cảnh, giọng đọc) được giữ lại, không tốn thêm lượt gọi AI.</p>
+      <p className="muted small">
+        Những phần đã làm xong (nhân vật, bối cảnh, giọng đọc) được giữ lại,
+        không tốn thêm lượt gọi AI.
+      </p>
     </div>
   );
 }
 
-function ScriptReview({ lesson, script, onDone }: { lesson: LessonView; script: LessonScript; onDone: () => void }) {
+function ScriptReview({
+  lesson,
+  script,
+  onDone,
+}: {
+  lesson: LessonView;
+  script: LessonScript;
+  onDone: () => void;
+}) {
   const [draft, setDraft] = useState(script);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedback, setFeedback] = useState('');
-  const [msg, setMsg] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const [feedback, setFeedback] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [onlySelected, setOnlySelected] = useState(true);
+  const [msg, setMsg] = useState<{ tone: "ok" | "error"; text: string } | null>(
+    null,
+  );
+  const scope = onlySelected ? selected : [];
 
   const run = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(label);
@@ -202,7 +271,7 @@ function ScriptReview({ lesson, script, onDone }: { lesson: LessonView; script: 
       await fn();
       return true;
     } catch (e) {
-      setMsg({ tone: 'error', text: (e as Error).message });
+      setMsg({ tone: "error", text: (e as Error).message });
       return false;
     } finally {
       setBusy(null);
@@ -216,7 +285,10 @@ function ScriptReview({ lesson, script, onDone }: { lesson: LessonView; script: 
         ...s,
         lines: s.lines
           .filter((l) => l.text.trim())
-          .map((l) => ({ ...l, ttsText: l.ttsText.trim() ? l.ttsText : l.text })),
+          .map((l) => ({
+            ...l,
+            ttsText: l.ttsText.trim() ? l.ttsText : l.text,
+          })),
       }))
       .filter((s) => s.lines.length);
     const next = { ...draft, sections };
@@ -225,14 +297,14 @@ function ScriptReview({ lesson, script, onDone }: { lesson: LessonView; script: 
   };
 
   const save = () =>
-    run('save', async () => {
+    run("save", async () => {
       await api.saveScript(lesson.id, cleaned());
       setDirty(false);
-      setMsg({ tone: 'ok', text: 'Đã lưu thay đổi' });
+      setMsg({ tone: "ok", text: "Đã lưu thay đổi" });
     });
 
   const approve = async () => {
-    const ok = await run('approve', async () => {
+    const ok = await run("approve", async () => {
       if (dirty) await api.saveScript(lesson.id, cleaned());
       await api.approveScript(lesson.id);
     });
@@ -240,7 +312,11 @@ function ScriptReview({ lesson, script, onDone }: { lesson: LessonView; script: 
   };
 
   const regenerate = async () => {
-    const ok = await run('regen', () => api.regenerateScript(lesson.id, feedback.trim()));
+    const ok = await run("regen", async () => {
+      // Lưu chỉnh sửa tay trước để AI sửa tiếp trên bản mới nhất
+      if (dirty) await api.saveScript(lesson.id, cleaned());
+      await api.regenerateScript(lesson.id, feedback.trim(), scope);
+    });
     if (ok) {
       setFeedbackOpen(false);
       onDone();
@@ -254,9 +330,16 @@ function ScriptReview({ lesson, script, onDone }: { lesson: LessonView; script: 
           <strong>Góp ý lần trước:</strong> {lesson.feedback}
         </div>
       ) : null}
-      {msg ? <div className={`alert alert-${msg.tone === 'ok' ? 'ok' : 'error'}`}>{msg.text}</div> : null}
+      {msg ? (
+        <div className={`alert alert-${msg.tone === "ok" ? "ok" : "error"}`}>
+          {msg.text}
+        </div>
+      ) : null}
       <ScriptEditor
         value={draft}
+        previous={lesson.scriptPrevious}
+        selected={selected}
+        onSelect={setSelected}
         onChange={(s) => {
           setDraft(s);
           setDirty(true);
@@ -264,22 +347,52 @@ function ScriptReview({ lesson, script, onDone }: { lesson: LessonView; script: 
       />
       <div className="sticky-bar">
         <span className="muted small">
-          {dirty ? 'Có thay đổi chưa lưu' : 'Kiểm tra nội dung rồi duyệt để AI sản xuất video'}
+          {dirty
+            ? "Có thay đổi chưa lưu"
+            : "Kiểm tra nội dung rồi duyệt để AI sản xuất video"}
         </span>
         <div className="actions">
-          <button className="btn" onClick={() => setFeedbackOpen(true)} disabled={!!busy}>
-            Yêu cầu AI viết lại
+          <button
+            className="btn"
+            onClick={() => setFeedbackOpen(true)}
+            disabled={!!busy}
+          >
+            {selected.length
+              ? `Yêu cầu AI sửa ${selected.length} câu đã chọn`
+              : "Yêu cầu AI sửa"}
           </button>
           <button className="btn" onClick={save} disabled={!dirty || !!busy}>
-            {busy === 'save' ? <span className="spinner" /> : null} Lưu
+            {busy === "save" ? <span className="spinner" /> : null} Lưu
           </button>
-          <button className="btn btn-success" onClick={approve} disabled={!!busy}>
-            {busy === 'approve' ? <span className="spinner" /> : null} Duyệt kịch bản & sản xuất video
+          <button
+            className="btn btn-success"
+            onClick={approve}
+            disabled={!!busy}
+          >
+            {busy === "approve" ? <span className="spinner" /> : null} Duyệt
+            kịch bản & sản xuất video
           </button>
         </div>
       </div>
       {feedbackOpen ? (
-        <Modal title="Yêu cầu AI viết lại kịch bản" onClose={() => setFeedbackOpen(false)}>
+        <Modal
+          title="Yêu cầu AI sửa kịch bản"
+          onClose={() => setFeedbackOpen(false)}
+        >
+          <p className="muted small" style={{ marginTop: 0 }}>
+            AI chỉ sửa đúng chỗ bạn góp ý, các câu khác giữ nguyên. Câu được sửa
+            sẽ được tô màu để bạn so sánh và hoàn tác.
+          </p>
+          {selected.length ? (
+            <label className="actions small" style={{ marginBottom: 10 }}>
+              <input
+                type="checkbox"
+                checked={onlySelected}
+                onChange={(e) => setOnlySelected(e.target.checked)}
+              />
+              Chỉ sửa {selected.length} câu đã chọn
+            </label>
+          ) : null}
           <label className="field">
             <span>Góp ý cho AI</span>
             <textarea
@@ -290,12 +403,17 @@ function ScriptReview({ lesson, script, onDone }: { lesson: LessonView; script: 
               placeholder="Ví dụ: thêm một câu hỏi để học sinh tự đếm, bớt lời mẹ, đổi bối cảnh sang lớp học"
             />
           </label>
-          <div className="actions" style={{ justifyContent: 'flex-end' }}>
+          <div className="actions" style={{ justifyContent: "flex-end" }}>
             <button className="btn" onClick={() => setFeedbackOpen(false)}>
               Huỷ
             </button>
-            <button className="btn btn-primary" disabled={feedback.trim().length < 3 || !!busy} onClick={regenerate}>
-              {busy === 'regen' ? <span className="spinner" /> : null} Viết lại
+            <button
+              className="btn btn-primary"
+              disabled={feedback.trim().length < 3 || !!busy}
+              onClick={regenerate}
+            >
+              {busy === "regen" ? <span className="spinner" /> : null} Gửi cho
+              AI sửa
             </button>
           </div>
         </Modal>
@@ -304,16 +422,22 @@ function ScriptReview({ lesson, script, onDone }: { lesson: LessonView; script: 
   );
 }
 
-function FinalReview({ lesson, onDone }: { lesson: LessonView; onDone: () => void }) {
+function FinalReview({
+  lesson,
+  onDone,
+}: {
+  lesson: LessonView;
+  onDone: () => void;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
-  const [feedback, setFeedback] = useState('');
-  const [mode, setMode] = useState<'video' | 'script'>('video');
+  const [feedback, setFeedback] = useState("");
+  const [mode, setMode] = useState<"video" | "script">("video");
   const [busy, setBusy] = useState(false);
   const urls = lesson.urls!;
   const name = slugFileName(lesson.title);
   const qa = lesson.qa;
-  const approved = lesson.status === 'approved';
+  const approved = lesson.status === "approved";
 
   const seek = (t: number) => {
     if (!videoRef.current) return;
@@ -337,19 +461,33 @@ function FinalReview({ lesson, onDone }: { lesson: LessonView; onDone: () => voi
   return (
     <>
       <div className="card">
-        <video ref={videoRef} className="player" src={urls.video} poster={urls.thumbnail} controls preload="metadata" />
+        <video
+          ref={videoRef}
+          className="player"
+          src={urls.video}
+          poster={urls.thumbnail}
+          controls
+          preload="metadata"
+        />
         <div className="card-head" style={{ marginTop: 16, marginBottom: 0 }}>
           <span className="muted small">
-            Thời lượng {lesson.output?.durationSec}s · render lúc {lesson.output ? formatTime(lesson.output.renderedAt) : ''}
+            Thời lượng {lesson.output?.durationSec}s · render lúc{" "}
+            {lesson.output ? formatTime(lesson.output.renderedAt) : ""}
           </span>
           <div className="downloads">
-            <a className="btn btn-sm" href={`${urls.video}?download=${name}.mp4`}>
+            <a
+              className="btn btn-sm"
+              href={`${urls.video}?download=${name}.mp4`}
+            >
               ⬇ Video MP4
             </a>
             <a className="btn btn-sm" href={`${urls.srt}?download=${name}.srt`}>
               ⬇ Phụ đề SRT
             </a>
-            <a className="btn btn-sm" href={`${urls.thumbnail}?download=${name}.jpg`}>
+            <a
+              className="btn btn-sm"
+              href={`${urls.thumbnail}?download=${name}.jpg`}
+            >
               ⬇ Ảnh thumbnail
             </a>
           </div>
@@ -360,8 +498,14 @@ function FinalReview({ lesson, onDone }: { lesson: LessonView; onDone: () => voi
         <div className="card-head">
           <h2>AI tự kiểm tra</h2>
           {qa ? (
-            <span className={`badge badge-${qa.verdict === 'pass' ? 'ok' : qa.verdict === 'warn' ? 'warn' : 'err'}`}>
-              {qa.verdict === 'pass' ? 'Đạt' : qa.verdict === 'warn' ? 'Có lỗi nhỏ' : 'Cần làm lại'}
+            <span
+              className={`badge badge-${qa.verdict === "pass" ? "ok" : qa.verdict === "warn" ? "warn" : "err"}`}
+            >
+              {qa.verdict === "pass"
+                ? "Đạt"
+                : qa.verdict === "warn"
+                  ? "Có lỗi nhỏ"
+                  : "Cần làm lại"}
             </span>
           ) : (
             <span className="badge badge-muted">Không có kết quả</span>
@@ -373,12 +517,17 @@ function FinalReview({ lesson, onDone }: { lesson: LessonView; onDone: () => voi
             {qa.issues.map((iss, i) => (
               <div key={i} className="qa-issue">
                 <button className="qa-time" onClick={() => seek(iss.timeSec)}>
-                  {Math.floor(iss.timeSec / 60)}:{String(Math.floor(iss.timeSec % 60)).padStart(2, '0')}
+                  {Math.floor(iss.timeSec / 60)}:
+                  {String(Math.floor(iss.timeSec % 60)).padStart(2, "0")}
                 </button>
                 <span
-                  className={`badge badge-${iss.severity === 'high' ? 'err' : iss.severity === 'medium' ? 'warn' : 'muted'}`}
+                  className={`badge badge-${iss.severity === "high" ? "err" : iss.severity === "medium" ? "warn" : "muted"}`}
                 >
-                  {iss.severity === 'high' ? 'Nặng' : iss.severity === 'medium' ? 'Vừa' : 'Nhẹ'}
+                  {iss.severity === "high"
+                    ? "Nặng"
+                    : iss.severity === "medium"
+                      ? "Vừa"
+                      : "Nhẹ"}
                 </span>
                 <span>{iss.description}</span>
               </div>
@@ -393,17 +542,30 @@ function FinalReview({ lesson, onDone }: { lesson: LessonView; onDone: () => voi
 
       {approved ? (
         <div className="alert alert-ok" style={{ marginTop: 16 }}>
-          Thành phẩm đã được duyệt. Tải video, phụ đề và thumbnail ở trên để đăng lên các kênh mạng xã hội.
+          Thành phẩm đã được duyệt. Tải video, phụ đề và thumbnail ở trên để
+          đăng lên các kênh mạng xã hội.
         </div>
       ) : null}
       <div className="sticky-bar">
-        <span className="muted small">{approved ? 'Cần sửa? Bạn vẫn có thể yêu cầu làm lại.' : 'Xem hết video rồi duyệt hoặc yêu cầu làm lại.'}</span>
+        <span className="muted small">
+          {approved
+            ? "Cần sửa? Bạn vẫn có thể yêu cầu làm lại."
+            : "Xem hết video rồi duyệt hoặc yêu cầu làm lại."}
+        </span>
         <div className="actions">
-          <button className="btn btn-danger" onClick={() => setRejectOpen(true)} disabled={busy}>
+          <button
+            className="btn btn-danger"
+            onClick={() => setRejectOpen(true)}
+            disabled={busy}
+          >
             Yêu cầu làm lại
           </button>
           {!approved ? (
-            <button className="btn btn-success" disabled={busy} onClick={() => act(() => api.approveFinal(lesson.id))}>
+            <button
+              className="btn btn-success"
+              disabled={busy}
+              onClick={() => act(() => api.approveFinal(lesson.id))}
+            >
               Duyệt thành phẩm
             </button>
           ) : null}
@@ -413,23 +575,29 @@ function FinalReview({ lesson, onDone }: { lesson: LessonView; onDone: () => voi
       {rejectOpen ? (
         <Modal title="Yêu cầu làm lại" onClose={() => setRejectOpen(false)}>
           <div
-            className={`radio-card ${mode === 'video' ? 'selected' : ''}`}
-            onClick={() => setMode('video')}
+            className={`radio-card ${mode === "video" ? "selected" : ""}`}
+            onClick={() => setMode("video")}
           >
-            <input type="radio" checked={mode === 'video'} readOnly />
+            <input type="radio" checked={mode === "video"} readOnly />
             <div>
               <strong>Dựng lại video</strong>
-              <div className="muted small">Giữ kịch bản, AI dàn dựng lại cảnh, camera, nhãn theo góp ý</div>
+              <div className="muted small">
+                Giữ kịch bản, AI chỉ dàn dựng lại những cảnh liên quan tới góp ý
+                (cảnh khác giữ nguyên). Ghi rõ giây nào để AI sửa đúng chỗ.
+              </div>
             </div>
           </div>
           <div
-            className={`radio-card ${mode === 'script' ? 'selected' : ''}`}
-            onClick={() => setMode('script')}
+            className={`radio-card ${mode === "script" ? "selected" : ""}`}
+            onClick={() => setMode("script")}
           >
-            <input type="radio" checked={mode === 'script'} readOnly />
+            <input type="radio" checked={mode === "script"} readOnly />
             <div>
               <strong>Sửa kịch bản</strong>
-              <div className="muted small">AI viết lại kịch bản theo góp ý, bạn duyệt lại trước khi sản xuất</div>
+              <div className="muted small">
+                AI sửa kịch bản theo góp ý, bạn duyệt lại trước khi sản xuất;
+                chỉ những phần có câu thay đổi được dựng lại
+              </div>
             </div>
           </div>
           <label className="field" style={{ marginTop: 12 }}>
@@ -441,14 +609,16 @@ function FinalReview({ lesson, onDone }: { lesson: LessonView; onDone: () => voi
               placeholder="Ví dụ: ở giây 0:25 camera nên phóng to vào giỏ trái cây, nhãn số 0 bị lệch"
             />
           </label>
-          <div className="actions" style={{ justifyContent: 'flex-end' }}>
+          <div className="actions" style={{ justifyContent: "flex-end" }}>
             <button className="btn" onClick={() => setRejectOpen(false)}>
               Huỷ
             </button>
             <button
               className="btn btn-primary"
               disabled={feedback.trim().length < 3 || busy}
-              onClick={() => act(() => api.rejectFinal(lesson.id, feedback.trim(), mode))}
+              onClick={() =>
+                act(() => api.rejectFinal(lesson.id, feedback.trim(), mode))
+              }
             >
               Gửi yêu cầu
             </button>
@@ -466,22 +636,35 @@ function EventLog({ events }: { events: LessonEvent[] }) {
       {events.map((e) => (
         <li key={e.id}>
           <time>{formatTime(e.createdAt)}</time>
-          <span className={e.type === 'error' ? 'error' : ''}>{e.message}</span>
+          <span className={e.type === "error" ? "error" : ""}>{e.message}</span>
         </li>
       ))}
     </ul>
   );
 }
 
-function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+function Modal({
+  title,
+  children,
+  onClose,
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h2>{title}</h2>
         {children}
       </div>
@@ -493,12 +676,19 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
 function IdeaCard({ lesson }: { lesson: LessonView }) {
   const idea = lesson.idea;
   const [uploads, setUploads] = useState<UploadView[]>([]);
-  const ids = [...(idea.materialIds ?? []), ...(idea.styleRefId ? [idea.styleRefId] : [])].join(',');
+  const ids = [
+    ...(idea.materialIds ?? []),
+    ...(idea.styleRefId ? [idea.styleRefId] : []),
+  ].join(",");
   useEffect(() => {
-    if (ids) api.listUploads(ids.split(',')).then(setUploads).catch(() => setUploads([]));
+    if (ids)
+      api
+        .listUploads(ids.split(","))
+        .then(setUploads)
+        .catch(() => setUploads([]));
   }, [ids]);
-  const materials = uploads.filter((u) => u.kind === 'material');
-  const style = uploads.find((u) => u.kind === 'style');
+  const materials = uploads.filter((u) => u.kind === "material");
+  const style = uploads.find((u) => u.kind === "style");
   return (
     <div className="card">
       <h2 style={{ marginBottom: 10 }}>Ý tưởng ban đầu</h2>
@@ -510,10 +700,17 @@ function IdeaCard({ lesson }: { lesson: LessonView }) {
           <ul className="file-list compact">
             {materials.map((m) => (
               <li key={m.id}>
-                <a href={m.url} target="_blank" rel="noreferrer" className="file-name">
+                <a
+                  href={m.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="file-name"
+                >
                   {m.name}
                 </a>
-                <span className="muted small">{m.textLength !== null ? 'AI đã đọc' : 'chưa đọc'}</span>
+                <span className="muted small">
+                  {m.textLength !== null ? "AI đã đọc" : "chưa đọc"}
+                </span>
               </li>
             ))}
           </ul>
@@ -523,20 +720,22 @@ function IdeaCard({ lesson }: { lesson: LessonView }) {
         <div className="idea-extra small">
           {idea.characterKeys?.length ? (
             <div>
-              Nhân vật chọn từ thư viện:{' '}
+              Nhân vật chọn từ thư viện:{" "}
               {idea.characterKeys
                 .map((k) => {
-                  const name = lesson.script?.characters.find((c) => c.id === k)?.name ?? k;
+                  const name =
+                    lesson.script?.characters.find((c) => c.id === k)?.name ??
+                    k;
                   return k === idea.mascotKey ? `${name} (mascot)` : name;
                 })
-                .join(', ')}
-              {idea.newCharacters === false ? ' — không thêm nhân vật mới' : ''}
+                .join(", ")}
+              {idea.newCharacters === false ? " — không thêm nhân vật mới" : ""}
             </div>
           ) : null}
           {idea.backgroundKeys?.length ? (
             <div>
-              Bối cảnh chọn từ thư viện: {idea.backgroundKeys.join(', ')}
-              {idea.newBackgrounds === false ? ' — không vẽ bối cảnh mới' : ''}
+              Bối cảnh chọn từ thư viện: {idea.backgroundKeys.join(", ")}
+              {idea.newBackgrounds === false ? " — không vẽ bối cảnh mới" : ""}
             </div>
           ) : null}
         </div>

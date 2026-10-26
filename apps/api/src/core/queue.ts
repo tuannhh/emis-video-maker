@@ -3,6 +3,8 @@ export const LESSON_QUEUE = 'lesson';
 export interface ScriptJobData {
   lessonId: string;
   feedback?: string;
+  /** Câu người duyệt chọn để sửa ("section:line"); trống = AI tự xác định chỗ cần sửa */
+  scope?: string[];
 }
 
 export interface ProduceJobData {

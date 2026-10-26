@@ -24,6 +24,7 @@
     "@remotion/renderer": "4.0.529",
     "bullmq": "^6.3.9",
     "express": "^5.1.0",
+    "google-auth-library": "10.9.1",
     "ioredis": "^5.8.2",
     "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",

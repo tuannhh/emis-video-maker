@@ -1,10 +1,36 @@
 import sharp from 'sharp';
 
 /**
- * Tách nhân vật khỏi nền magenta (#FF00FF) do model ảnh vẽ.
- * Loang (flood fill) từ mép ảnh nên không làm thủng các chi tiết màu hồng bên trong nhân vật,
- * sau đó làm mềm viền và khử ám màu magenta ở rìa.
+ * Tách nhân vật/vật khỏi nền một màu (mặc định magenta #FF00FF) do model ảnh vẽ.
+ * Loang (flood fill) từ mép ảnh nên không làm thủng các chi tiết cùng tông màu bên trong hình,
+ * sau đó làm mềm viền và khử ám màu nền ở rìa.
  */
+
+/** Màu nền dùng để tách: hình minh hoạ chọn màu không trùng màu của chính vật (lợn hồng → nền xanh lá) */
+export type KeyColor = 'magenta' | 'green' | 'blue';
+
+/** Kênh màu nổi trội của từng màu nền (R=0, G=1, B=2) */
+const KEY_CHANNELS: Record<KeyColor, { hi: number[]; lo: number[] }> = {
+  magenta: { hi: [0, 2], lo: [1] },
+  green: { hi: [1], lo: [0, 2] },
+  blue: { hi: [2], lo: [0, 1] },
+};
+
+export const KEY_HEX: Record<KeyColor, string> = { magenta: '#FF00FF', green: '#00FF00', blue: '#0000FF' };
+
+/** Từ chỉ màu/vật có màu trùng từng màu nền (mô tả tiếng Anh) */
+const KEY_CLASH: Record<KeyColor, RegExp> = {
+  magenta:
+    /\b(pink|purple|magenta|violet|lilac|lavender|mauve|fuchsia|grapes?|plums?|eggplants?|aubergines?|pigs?|piglets?|flamingos?|roses?|orchids?|lotus|beets?|beetroots?|dragon ?fruits?|cherry blossoms?|peach blossoms?)\b/i,
+  green:
+    /\b(green|lime|leaf|leaves|grass|trees?|plants?|frogs?|cucumbers?|lettuce|cabbages?|broccoli|peas?|turtles?|crocodiles?|caterpillars?|cactus|bamboo|watermelons?|avocados?)\b/i,
+  blue: /\b(blue|navy|cyan|turquoise|sky|water|sea|ocean|river|lake|whales?|dolphins?|blueberr(y|ies)|jeans|bluebirds?)\b/i,
+};
+
+/** Màu nền tách hợp với một vật: màu đầu tiên không trùng màu của vật */
+export function keyColorFor(description: string): KeyColor {
+  return (['magenta', 'green', 'blue'] as const).find((k) => !KEY_CLASH[k].test(description)) ?? 'magenta';
+}
 
 interface Raw {
   data: Buffer;
@@ -17,12 +43,14 @@ async function toRaw(input: Buffer): Promise<Raw> {
   return { data, width: info.width, height: info.height };
 }
 
-/** Mức "magenta" của pixel: min(R,B) - G. Nền magenta thuần ≈ 255. */
-function magentaness(d: Buffer, i: number) {
-  return Math.min(d[i], d[i + 2]) - d[i + 1];
+/** Mức "giống màu nền" của pixel: kênh nổi trội yếu nhất trừ kênh còn lại mạnh nhất. Nền thuần ≈ 255. */
+function keyness(d: Buffer, i: number, key: KeyColor) {
+  const { hi, lo } = KEY_CHANNELS[key];
+  return Math.min(...hi.map((c) => d[i + c])) - Math.max(...lo.map((c) => d[i + c]));
 }
 
-function keyOut({ data, width, height }: Raw): Buffer {
+function keyOut({ data, width, height }: Raw, key: KeyColor = 'magenta'): Buffer {
+  const { hi, lo } = KEY_CHANNELS[key];
   const out = Buffer.from(data);
   const n = width * height;
   const bg = new Uint8Array(n);
@@ -31,7 +59,7 @@ function keyOut({ data, width, height }: Raw): Buffer {
   let tail = 0;
   const isBgCandidate = (p: number) => {
     const i = p * 4;
-    return magentaness(data, i) > 70 && data[i] > 110 && data[i + 2] > 110;
+    return keyness(data, i, key) > 70 && hi.every((c) => data[i + c] > 110);
   };
   const push = (p: number) => {
     if (!bg[p] && isBgCandidate(p)) {
@@ -60,14 +88,16 @@ function keyOut({ data, width, height }: Raw): Buffer {
   flood();
 
   // Khoảng nền bị kẹp kín (giữa tay và thân...) không nối với mép ảnh: loang tiếp từ các pixel
-  // magenta đậm. Nhân vật được yêu cầu không có màu magenta nên không sợ ăn vào chi tiết thật.
+  // đậm màu nền. Hình được yêu cầu không có màu nền nên không sợ ăn vào chi tiết thật.
+  // Nền magenta nhìn qua tròng kính bị model vẽ nhạt đi (≈ 250,155,245): cũng tính là nền.
   for (let p = 0; p < n; p++) {
     if (bg[p]) continue;
     const i = p * 4;
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    if (r > 170 && b > 170 && g < 90 && Math.abs(r - b) < 70) {
+    const his = hi.map((c) => data[i + c]);
+    const spread = Math.max(...his) - Math.min(...his);
+    const strong = his.every((v) => v > 170) && lo.every((c) => data[i + c] < 90) && spread < 70;
+    const washed = key === 'magenta' && his.every((v) => v > 215) && keyness(data, i, key) > 60 && spread < 30;
+    if (strong || washed) {
       bg[p] = 1;
       queue[tail++] = p;
     }
@@ -80,7 +110,7 @@ function keyOut({ data, width, height }: Raw): Buffer {
       out[i + 3] = 0;
       continue;
     }
-    // Pixel sát nền: alpha theo mức magenta, khử ám màu
+    // Pixel sát nền: alpha theo mức giống màu nền, khử ám màu
     const x = p % width;
     const nearBg =
       (x > 0 && bg[p - 1]) ||
@@ -88,13 +118,11 @@ function keyOut({ data, width, height }: Raw): Buffer {
       (p >= width && bg[p - width]) ||
       (p < n - width && bg[p + width]);
     if (!nearBg) continue;
-    const m = magentaness(data, i);
+    const m = keyness(data, i, key);
     if (m > 20) {
       const alpha = Math.max(0, Math.min(1, 1 - (m - 20) / 140));
       out[i + 3] = Math.round(255 * alpha);
-      const spill = Math.min(data[i], data[i + 2]) - data[i + 1];
-      out[i] = Math.max(0, data[i] - spill * 0.7);
-      out[i + 2] = Math.max(0, data[i + 2] - spill * 0.7);
+      for (const c of hi) out[i + c] = Math.max(0, data[i + c] - m * 0.7);
     }
   }
   return out;
@@ -133,20 +161,20 @@ export interface CutoutResult {
  * Tách nền cho nhiều biến thể của cùng một nhân vật và cắt chung một khung,
  * để các ảnh chồng khít lên nhau khi đổi khẩu hình.
  */
-export async function cutoutVariants(inputs: Buffer[], maxHeight = 1400): Promise<CutoutResult> {
+export async function cutoutVariants(inputs: Buffer[], maxHeight = 1400, key: KeyColor = 'magenta'): Promise<CutoutResult> {
   const raws = await Promise.all(inputs.map(toRaw));
   const { width, height } = raws[0];
   const keyed = await Promise.all(
     raws.map(async (r) => {
       // Các biến thể có thể lệch kích thước vài pixel: đưa về cùng kích thước ảnh gốc
-      if (r.width === width && r.height === height) return keyOut(r);
+      if (r.width === width && r.height === height) return keyOut(r, key);
       const resized = await toRaw(
         await sharp(r.data, { raw: { width: r.width, height: r.height, channels: 4 } })
           .resize(width, height, { fit: 'fill' })
           .png()
           .toBuffer(),
       );
-      return keyOut(resized);
+      return keyOut(resized, key);
     }),
   );
 

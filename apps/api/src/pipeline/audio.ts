@@ -223,3 +223,60 @@ export function samplesToWav(samples: Int16Array, sampleRate: number): Buffer {
   header.writeUInt32LE(pcm.length, 40);
   return Buffer.concat([header, pcm]);
 }
+
+/**
+ * Làm giọng trẻ hơn: nâng đồng thời cao độ và formant (âm sắc) lên `factor` lần nhưng giữ nguyên độ dài câu.
+ * Giọng TTS có sẵn đều là người lớn; formant cao hơn là khác biệt chính giữa giọng trẻ em và người lớn giả giọng trẻ.
+ * Đọc nhanh hơn `factor` lần (nâng cả cao độ lẫn formant) rồi kéo giãn thời gian lại bằng WSOLA.
+ */
+export function youngerVoice(wav: Buffer, factor: number): Buffer {
+  if (!(factor > 1.001)) return wav;
+  const { sampleRate, samples } = parseWav(wav);
+  const x = Float32Array.from(samples, (v) => v / 32768);
+  // 1. Lấy mẫu lại: ngắn đi `factor` lần, cao độ và formant tăng `factor` lần
+  const n = Math.floor(x.length / factor);
+  const fast = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const p = i * factor;
+    const k = Math.floor(p);
+    const t = p - k;
+    fast[i] = (x[k] ?? 0) * (1 - t) + (x[k + 1] ?? 0) * t;
+  }
+  // 2. WSOLA: kéo giãn về độ dài cũ, mỗi khung tìm chỗ khớp sóng nhất để không bị rè
+  const win = Math.round(sampleRate * 0.03);
+  const hop = Math.floor(win / 2);
+  const search = Math.round(sampleRate * 0.008);
+  const hann = Float32Array.from({ length: win }, (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / win));
+  const out = new Float32Array(x.length + win);
+  const norm = new Float32Array(x.length + win);
+  let prevEnd = 0; // vị trí (trong fast) nối tiếp tự nhiên của khung trước
+  for (let o = 0; o + win < out.length; o += hop) {
+    const ideal = Math.round(o / factor);
+    let best = Math.min(Math.max(0, ideal), Math.max(0, n - win));
+    if (o > 0) {
+      let bestScore = -Infinity;
+      for (let d = -search; d <= search; d++) {
+        const c = ideal + d;
+        if (c < 0 || c + win > n) continue;
+        let score = 0;
+        for (let i = 0; i < hop; i += 2) score += fast[c + i] * fast[prevEnd + i];
+        if (score > bestScore) {
+          bestScore = score;
+          best = c;
+        }
+      }
+    }
+    for (let i = 0; i < win; i++) {
+      out[o + i] += (fast[best + i] ?? 0) * hann[i];
+      norm[o + i] += hann[i];
+    }
+    prevEnd = Math.min(n - win, best + hop);
+    if (prevEnd < 0) prevEnd = 0;
+  }
+  const pcm = new Int16Array(x.length);
+  for (let i = 0; i < pcm.length; i++) {
+    const v = norm[i] > 1e-3 ? out[i] / norm[i] : out[i];
+    pcm[i] = Math.max(-32768, Math.min(32767, Math.round(v * 32768)));
+  }
+  return samplesToWav(pcm, sampleRate);
+}
